@@ -46,9 +46,9 @@ export default function Cronometro({ ativo, onFinalizar, label, tempoInicial = 0
   };
 
   return (
-    <Stack direction="row" spacing={2} alignItems="center">
-      <Typography variant="subtitle1">{label}:</Typography>
-      <Typography variant="h6" color={excedeu ? 'error' : 'inherit'}>
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" sx={{ width: '100%', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+      <Typography variant="subtitle1" sx={{ width: { xs: '100%', sm: 'auto' } }}>{label}:</Typography>
+      <Typography variant="h6" color={excedeu ? 'error' : 'inherit'} sx={{ width: { xs: '100%', sm: 'auto' } }}>
         {formatTime(tempo)}
       </Typography>
       {ativo && (
@@ -56,11 +56,12 @@ export default function Cronometro({ ativo, onFinalizar, label, tempoInicial = 0
           variant="contained" 
           color={excedeu ? 'error' : 'success'} 
           onClick={handleFinalizar}
+          sx={{ width: { xs: '100%', sm: 'auto' } }}
         >
           Finalizar
         </Button>
       )}
-      {excedeu && <Typography color="error">Tempo excedido!</Typography>}
+      {excedeu && <Typography color="error" sx={{ width: { xs: '100%', sm: 'auto' } }}>Tempo excedido!</Typography>}
     </Stack>
   );
 } 

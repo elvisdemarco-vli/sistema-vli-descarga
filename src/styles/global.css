@@ -273,6 +273,22 @@ tbody tr:hover {
   box-shadow: 0 2px 8px rgba(144, 202, 249, 0.10);
 }
 
+/* Tabelas e imagens responsivas */
+table {
+  width: 100%;
+  max-width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+td, th {
+  word-break: break-word;
+}
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
 @media (max-width: 900px) {
   body {
     font-size: 15px;
@@ -332,5 +348,13 @@ tbody tr:hover {
   footer {
     font-size: 0.95rem !important;
     padding: 12px 0 6px 0 !important;
+  }
+  table {
+    font-size: 0.85rem;
+    display: block;
+    overflow-x: auto;
+  }
+  td, th {
+    padding: 6px 4px;
   }
 } 
