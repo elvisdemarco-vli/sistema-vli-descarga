@@ -1,0 +1,336 @@
+/* global.css - aprimorado para visual moderno e confortável */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', Arial, sans-serif;
+  background: linear-gradient(135deg, #f8fbff 0%, #e3f2fd 40%, #bbdefb 80%, #90caf9 100%);
+  color: #222;
+  position: relative;
+}
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 220px;
+  z-index: 0;
+  pointer-events: none;
+  background: url('data:image/svg+xml;utf8,<svg width="100%25" height="220" viewBox="0 0 1440 220" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 120C180 200 420 40 720 120C1020 200 1260 40 1440 120V220H0V120Z" fill="%2390caf9" fill-opacity="0.35"/><path d="M0 80C180 160 420 0 720 80C1020 160 1260 0 1440 80V220H0V80Z" fill="%2390caf9" fill-opacity="0.18"/></svg>');
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+body::after {
+  content: '';
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  height: 180px;
+  z-index: 0;
+  pointer-events: none;
+  background: url('data:image/svg+xml;utf8,<svg width="100%25" height="180" viewBox="0 0 1440 180" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 60C180 140 420 -20 720 60C1020 140 1260 -20 1440 60V180H0V60Z" fill="%2390caf9" fill-opacity="0.32"/><path d="M0 100C180 180 420 40 720 100C1020 180 1260 40 1440 100V180H0V100Z" fill="%2390caf9" fill-opacity="0.18"/></svg>');
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+#root, .MuiContainer-root, .MuiPaper-root, .paper {
+  position: relative;
+  z-index: 1;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  color: #1976d2;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+  letter-spacing: 0.01em;
+  font-family: 'Inter', Arial, sans-serif;
+  position: relative;
+}
+h2, h3, h4 {
+  font-size: 2rem;
+  border-bottom: 2.5px solid #90caf9;
+  padding-bottom: 4px;
+  margin-bottom: 18px;
+  margin-top: 24px;
+  display: inline-block;
+}
+.section-divider {
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, #90caf9 0%, #1976d2 100%);
+  border: none;
+  margin: 32px 0 24px 0;
+  opacity: 0.5;
+  border-radius: 2px;
+}
+
+/* Botões modernos com gradiente, hover animado e sombra */
+.MuiButton-root, button {
+  border-radius: 8px !important;
+  background: linear-gradient(90deg, #1976d2 0%, #90caf9 100%);
+  color: #fff !important;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.10);
+  transition: background 0.3s, box-shadow 0.2s, transform 0.15s;
+  padding: 10px 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.MuiButton-root:hover, button:hover {
+  background: linear-gradient(90deg, #1565c0 0%, #64b5f6 100%);
+  box-shadow: 0 4px 16px rgba(25, 118, 210, 0.16);
+  transform: translateY(-2px) scale(1.03);
+}
+.MuiButton-startIcon, .MuiButton-endIcon {
+  margin: 0 6px 0 0;
+  display: flex;
+  align-items: center;
+}
+
+.MuiButton-outlined {
+  background: #fff;
+  color: #1976d2;
+  border: 1.5px solid #1976d2;
+}
+.MuiButton-outlined:hover {
+  background: #e3f2fd;
+  color: #1565c0;
+  border-color: #1565c0;
+}
+
+.btn-troca-turno {
+  background: linear-gradient(90deg, #ff9800 0%, #ffb74d 100%) !important;
+  color: #fff !important;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(255, 152, 0, 0.13);
+  border: none !important;
+  transition: background 0.25s, box-shadow 0.18s;
+}
+.btn-troca-turno:hover, .btn-troca-turno:focus {
+  background: linear-gradient(90deg, #fb8c00 0%, #ffd180 100%) !important;
+  box-shadow: 0 4px 16px rgba(255, 152, 0, 0.22);
+}
+
+ul.acorh, ul.acorh * {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+ul.acorh {
+  margin: 10px auto;
+  padding: 0;
+  list-style: none;
+  width: 100%;
+  font-size: 18px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.06);
+  overflow: hidden;
+}
+ul.acorh li {
+  list-style: none;
+}
+ul.acorh li a {
+  display: block;
+  padding: 10px 10px 10px 20px;
+  background: #1976d2;
+  color: #fff;
+  border-bottom: 1px solid #1565c0;
+  border-top: 1px solid #90caf9;
+  text-decoration: none;
+  box-sizing: border-box;
+  transition: background 0.2s, color 0.2s;
+  border-radius: 0;
+}
+ul.acorh li ul {
+  max-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  transition: .3s all cubic-bezier(.4,0,.2,1);
+}
+ul.acorh li li a {
+  padding: 10px 10px 10px 40px;
+  background: #e3f2fd;
+  color: #1976d2;
+  font-size: 16px;
+  border: 0;
+  border-bottom: 1px solid #bbdefb;
+  box-sizing: border-box;
+}
+ul.acorh li li:last-child a {
+  border-bottom: 0;
+}
+ul.acorh li:hover ul {
+  max-height: 300px;
+  transition: .3s all cubic-bezier(.4,0,.2,1);
+}
+ul.acorh li a:hover {
+  background: #90caf9;
+  color: #1565c0;
+}
+
+/* Glassmorphism aprimorado para painéis */
+.MuiPaper-root, .paper {
+  border-radius: 16px !important;
+  box-shadow: 0 8px 32px rgba(25, 118, 210, 0.13), 0 1.5px 6px rgba(0,0,0,0.04) !important;
+  background: rgba(255, 255, 255, 0.82) !important;
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  border: 1.5px solid transparent;
+  border-image: linear-gradient(120deg, #90caf9 0%, #1976d2 100%);
+  border-image-slice: 1;
+}
+
+/* Inputs/campos modernos */
+.MuiTextField-root, input, select, textarea {
+  border-radius: 10px !important;
+  background: #f8fafc;
+  font-size: 1rem;
+  padding: 10px 14px;
+  transition: box-shadow 0.2s, border 0.2s;
+  box-shadow: 0 1.5px 6px rgba(25, 118, 210, 0.06);
+}
+.MuiTextField-root input::placeholder, textarea::placeholder {
+  color: #90caf9;
+  opacity: 1;
+}
+.MuiInputLabel-root, label {
+  color: #1976d2 !important;
+  opacity: 0.85;
+  font-weight: 500;
+}
+.MuiTextField-root input:focus, input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px #90caf9, 0 2px 8px rgba(25, 118, 210, 0.10);
+  background: #e3f2fd;
+}
+
+.MuiTable-root, table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 1rem;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+thead, .MuiTableHead-root {
+  background: #1976d2;
+  color: #fff;
+  font-weight: 700;
+}
+tbody tr:nth-child(even) {
+  background: #f0f4fa;
+}
+tbody tr:hover {
+  background: #e3f2fd;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  background: #e3f2fd;
+}
+::-webkit-scrollbar-thumb {
+  background: #90caf9;
+  border-radius: 8px;
+}
+
+.valores-img {
+  transition: transform 0.25s cubic-bezier(.4,2,.3,1), box-shadow 0.18s;
+  cursor: pointer;
+}
+.valores-img:hover, .valores-img:focus {
+  transform: scale(1.12);
+  box-shadow: 0 8px 32px #1976d2, 0 2px 12px #90caf9;
+  z-index: 2;
+}
+.valores-img:active {
+  transform: scale(1.16);
+  box-shadow: 0 12px 36px #1976d2, 0 2px 12px #90caf9;
+}
+
+.aviso-posicionamento {
+  background: linear-gradient(90deg, #e3f2fd 0%, #bbdefb 100%);
+  color: #1976d2;
+  font-weight: 600;
+  border-left: 5px solid #1976d2;
+  border-radius: 8px;
+  padding: 10px 18px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.07);
+}
+.aviso-descarga {
+  background: linear-gradient(90deg, #f8fafc 0%, #e3f2fd 100%);
+  color: #333;
+  font-weight: 600;
+  border-left: 5px solid #90caf9;
+  border-radius: 8px;
+  padding: 10px 18px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 8px rgba(144, 202, 249, 0.10);
+}
+
+@media (max-width: 900px) {
+  body {
+    font-size: 15px;
+  }
+  .MuiTable-root, table {
+    font-size: 0.95rem;
+  }
+  .MuiButton-root, button {
+    padding: 8px 12px;
+    font-size: 0.95rem;
+  }
+  ul.acorh {
+    font-size: 16px;
+  }
+  .valores-img {
+    width: 98vw !important;
+    max-width: 98vw !important;
+    height: 120px !important;
+    margin: 0 auto 12px auto;
+    display: block;
+  }
+  .MuiPaper-root, .paper {
+    padding: 12px !important;
+  }
+  .section-divider {
+    margin: 18px 0 14px 0;
+  }
+}
+
+@media (max-width: 600px) {
+  body {
+    font-size: 14px;
+  }
+  .MuiTable-root, table {
+    font-size: 0.9rem;
+  }
+  .MuiButton-root, button {
+    padding: 7px 8px;
+    font-size: 0.9rem;
+  }
+  ul.acorh {
+    font-size: 15px;
+  }
+  .valores-img {
+    width: 96vw !important;
+    max-width: 96vw !important;
+    height: 100px !important;
+    margin: 0 auto 10px auto;
+    display: block;
+  }
+  .MuiPaper-root, .paper {
+    padding: 8px !important;
+  }
+  .section-divider {
+    margin: 10px 0 8px 0;
+  }
+  footer {
+    font-size: 0.95rem !important;
+    padding: 12px 0 6px 0 !important;
+  }
+} 
