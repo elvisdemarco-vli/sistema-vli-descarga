@@ -1599,7 +1599,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
           label="Armazém"
           value={armazem || ''}
           onChange={e => handleChange('armazem', e.target.value)}
-          sx={{ minWidth: 120 }}
+          sx={{ minWidth: 0, width: '100%' }}
           disabled={confirmado}
         />
         <MuiTextField
@@ -1607,7 +1607,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
           type="time"
           value={inicio || ''}
           onChange={e => handleChange('inicio', e.target.value)}
-          sx={{ minWidth: 120 }}
+          sx={{ minWidth: 0, width: '100%' }}
           disabled={confirmado}
           InputLabelProps={{ shrink: true }}
         />
@@ -1615,14 +1615,14 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
           label="Maquinista"
           value={maquinista || ''}
           onChange={e => handleChange('maquinista', e.target.value)}
-          sx={{ minWidth: 120 }}
+          sx={{ minWidth: 0, width: '100%' }}
           disabled={confirmado}
         />
         <MuiTextField
           label="Operador"
           value={operador || ''}
           onChange={e => handleChange('operador', e.target.value)}
-          sx={{ minWidth: 120 }}
+          sx={{ minWidth: 0, width: '100%' }}
           disabled={confirmado}
           placeholder="Seu nome"
         />
@@ -1631,7 +1631,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
           label="Qtd Vagões"
           value={qtdVagoes}
           onChange={handleQtdVagoesChange}
-          sx={{ minWidth: 120 }}
+          sx={{ minWidth: 0, width: '100%' }}
           inputProps={{ min: 0 }}
           disabled={confirmado}
         />
@@ -1660,9 +1660,9 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
           <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap sx={{ mt: 2 }}>
             {Array.from({ length: numPos }).map((_, idx) => (
               <Paper key={idx} elevation={3} sx={{
-                flex: '1 1 320px',
-                minWidth: 280,
-                maxWidth: 400,
+                flex: '1 1 100%',
+                minWidth: 0,
+                maxWidth: '100%',
                 p: 2,
                 mb: 2,
                 background: 'linear-gradient(120deg, #e3f2fd 0%, #bbdefb 100%)',
@@ -2251,7 +2251,9 @@ export default function ControleMoega() {
         background: 'linear-gradient(90deg, #e3f2fd 0%, #bbdefb 100%)',
         backdropFilter: 'blur(12px) saturate(1.2)',
         border: '1.5px solid #90caf9',
-        flexWrap: { xs: 'wrap', sm: 'nowrap' }
+        flexWrap: { xs: 'wrap', sm: 'nowrap' },
+        width: '100%',
+        maxWidth: '100%'
       }}>
         <Stack direction="row" spacing={2} alignItems="center" sx={{ width: '100%' }}>
           <ul className="acorh" style={{ width: 200, margin: 0 }}>
@@ -2319,9 +2321,9 @@ export default function ControleMoega() {
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 18 }}>
-          <img src="/img vli/terminalTiplam.jpg" alt="Terminal Tiplam" className="valores-img" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
-          <img src="/img vli/composiçao.jpg" alt="Composição" className="valores-img" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
-          <img src="/img vli/inovar.jpg" alt="Inovar" className="valores-img" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
+          <img src="/img vli/terminalTiplam.jpg" alt="Terminal Tiplam" className="valores-img" style={{ width: '100%', height: 'auto', objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
+          <img src="/img vli/composiçao.jpg" alt="Composição" className="valores-img" style={{ width: '100%', height: 'auto', objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
+          <img src="/img vli/inovar.jpg" alt="Inovar" className="valores-img" style={{ width: '100%', height: 'auto', objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
         </div>
       </Paper>
       {/* Feedback visual restaurado */}
