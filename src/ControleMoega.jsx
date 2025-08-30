@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
-import { TextField as MuiTextField, Button as MuiButton, Grid, Paper, Typography, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, Alert, Stack, Checkbox, Tooltip as MuiTooltip, Container } from '@mui/material';
-import { app, db, firebaseConfig } from "./firebaseConfig";
-import { collection, addDoc, getDocs, query, where, orderBy, limit, doc, getDoc, startAfter, setDoc, deleteDoc } from "firebase/firestore";
-import * as XLSX from "xlsx";
+import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
+import { TextField as MuiTextField, Button as MuiButton, Grid, Paper, Typography, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, Alert, Stack, Checkbox, Tooltip as MuiTooltip, AppBar, Toolbar, IconButton, Drawer, List, ListItemButton, ListItemText, Divider, Box } from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
+import { db } from "./firebaseConfig";
+import { collection, addDoc, getDocs, query, limit, doc, setDoc, deleteDoc } from "firebase/firestore";
+// import * as XLSX from "xlsx";
 import {
   LineChart,
   Line,
@@ -25,6 +26,53 @@ function msParaMinutosSegundos(ms) {
   return `${min}:${sec < 10 ? "0" : ""}${sec}`;
 }
 
+// Helpers adicionais para timestamps e formatação
+function agoraISO() {
+  return new Date().toISOString();
+}
+function hhmmLocal(dateISO) {
+  try {
+    const d = dateISO ? new Date(dateISO) : new Date();
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+function msParaHorasMinutos(ms) {
+  if (!ms || isNaN(ms)) return '00:00';
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60).toString().padStart(2, '0');
+  const m = (totalMin % 60).toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+function calcularTMDGiro(cronos, qtdVagoes) {
+  if (!Array.isArray(cronos) || !qtdVagoes || qtdVagoes <= 0) return '00:00';
+  const totalMs = cronos.reduce((acc, c) => acc + (c ? c.descargaTempo : 0), 0);
+  const media = totalMs / qtdVagoes;
+  return msParaHorasMinutos(media);
+}
+// Calcula TMD com base em início/fim ISO (quando houver), dividindo igualmente por quantidade de vagões
+function calcularTMDGiroISO(inicioISO, fimISO, qtdVagoes) {
+  try {
+    if (!inicioISO || !fimISO || !qtdVagoes || qtdVagoes <= 0) return '';
+    const ini = new Date(inicioISO).getTime();
+    const fim = new Date(fimISO).getTime();
+    if (isNaN(ini) || isNaN(fim) || fim <= ini) return '';
+    const media = (fim - ini) / qtdVagoes;
+    return msParaHorasMinutos(media);
+  } catch {
+    return '';
+  }
+}
+function obterHorarioFimParaExibir(inicio, cronos, fimISO) {
+  if (fimISO) return hhmmLocal(fimISO);
+  if (!inicio || !Array.isArray(cronos)) return '';
+  const inicioDate = new Date(`2000-01-01T${inicio}`);
+  const totalMs = cronos.reduce((acc, c) => acc + (c ? c.descargaTempo : 0), 0);
+  const fimDate = new Date(inicioDate.getTime() + totalMs);
+  return fimDate.toTimeString().slice(0, 5);
+}
+
 // Removido getAuth automático para evitar listeners
 // const auth = getAuth(app);
 
@@ -41,76 +89,104 @@ function Feedback({ type, message, onClose }) {
   );
 }
 
+// eslint-disable-next-line no-unused-vars
 function RegistroForm({ registro, setRegistro, onSalvar, loading, errors }) {
   return (
-    <Paper elevation={3} sx={{ p: 3, mb: 2 }}>
+    <Paper elevation={3} sx={{ p: 3, mb: 2 }} className="overflow-x-auto">
       <Typography variant="h6" gutterBottom>Formulário de novo registro</Typography>
       <form
         onSubmit={e => { e.preventDefault(); onSalvar(); }}
         aria-label="Formulário de novo registro"
+        className="w-full overflow-x-auto"
       >
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
-            <MuiTextField
-              fullWidth
+        {/* Grid responsivo: 1 coluna no mobile, 2 colunas no md+ */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Prefixo */}
+          <div className="flex flex-col min-w-0">
+            <label htmlFor="prefixo" className="mb-1 text-sm font-medium text-gray-700">Prefixo *</label>
+            <input
               id="prefixo"
-              label="Prefixo *"
+              type="text"
+              className={`w-full h-12 px-4 py-2 rounded-md border focus:outline-none focus:ring-2 ${errors.prefixo ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`}
+              placeholder="Digite o prefixo"
               value={registro.prefixo}
               onChange={e => setRegistro({ ...registro, prefixo: e.target.value })}
-              error={!!errors.prefixo}
-              helperText={errors.prefixo}
+              aria-invalid={!!errors.prefixo}
               required
             />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <MuiTextField
-              fullWidth
+            {errors.prefixo && (
+              <p className="mt-1 text-sm text-red-600">{errors.prefixo}</p>
+            )}
+          </div>
+
+          {/* Qtd Vagões */}
+          <div className="flex flex-col min-w-0">
+            <label htmlFor="qtdVagoes" className="mb-1 text-sm font-medium text-gray-700">Qtd Vagões *</label>
+            <input
               id="qtdVagoes"
-              label="Qtd Vagões *"
               type="number"
+              className={`w-full h-12 px-4 py-2 rounded-md border focus:outline-none focus:ring-2 ${errors.qtdVagoes ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`}
+              placeholder="Quantidade de vagões"
               value={registro.qtdVagoes}
               onChange={e => setRegistro({ ...registro, qtdVagoes: Number(e.target.value) })}
-              error={!!errors.qtdVagoes}
-              helperText={errors.qtdVagoes}
+              aria-invalid={!!errors.qtdVagoes}
               required
             />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <MuiTextField
-              fullWidth
+            {errors.qtdVagoes && (
+              <p className="mt-1 text-sm text-red-600">{errors.qtdVagoes}</p>
+            )}
+          </div>
+
+          {/* Maquinista */}
+          <div className="flex flex-col min-w-0">
+            <label htmlFor="maquinista" className="mb-1 text-sm font-medium text-gray-700">Maquinista</label>
+            <input
               id="maquinista"
-              label="Maquinista"
+              type="text"
+              className="w-full h-12 px-4 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Nome do maquinista"
               value={registro.maquinista}
               onChange={e => setRegistro({ ...registro, maquinista: e.target.value })}
             />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <MuiTextField
-              fullWidth
+          </div>
+
+          {/* Armazém */}
+          <div className="flex flex-col min-w-0">
+            <label htmlFor="armazem" className="mb-1 text-sm font-medium text-gray-700">Armazém</label>
+            <input
               id="armazem"
-              label="Armazém"
+              type="text"
+              className="w-full h-12 px-4 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Armazém"
               value={registro.armazem}
               onChange={e => setRegistro({ ...registro, armazem: e.target.value })}
             />
-          </Grid>
-          <Grid item xs={12}>
-            <MuiButton
-              fullWidth
-              variant="contained"
-              color="primary"
-              type="submit"
-              disabled={loading}
-              sx={{ mt: 2 }}
-            >
-              {loading ? <CircularProgress size={24} color="inherit" /> : "Salvar Registro"}
-            </MuiButton>
-          </Grid>
-        </Grid>
+          </div>
+        </div>
+
+        {/* Ações: botões empilhados no mobile, lado a lado no md+ */}
+        <div className="mt-4 flex flex-col md:flex-row gap-4">
+          <button
+            type="submit"
+            className="w-full md:w-auto h-12 px-6 rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={20} color="inherit" /> : 'Salvar'}
+          </button>
+          <button
+            type="button"
+            className="w-full md:w-auto h-12 px-6 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-300"
+            onClick={() => setRegistro({ ...registro, prefixo: '', qtdVagoes: 0, maquinista: '', armazem: '' })}
+          >
+            Cancelar
+          </button>
+        </div>
       </form>
     </Paper>
   );
 }
 
+// eslint-disable-next-line no-unused-vars
 function RegistrosTable({ registros }) {
   return (
     <TableContainer component={Paper} sx={{ mt: 2 }}>
@@ -146,6 +222,7 @@ function RegistrosTable({ registros }) {
   );
 }
 
+// eslint-disable-next-line no-unused-vars
 function DesempenhoGrafico({ dados }) {
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -163,6 +240,7 @@ function DesempenhoGrafico({ dados }) {
   );
 }
 
+// eslint-disable-next-line no-unused-vars
 function HistoricoComposicoes({ composicoes, onFechar }) {
   return (
     <Paper sx={{ mt: 2, p: 2 }}>
@@ -204,9 +282,9 @@ function HistoricoComposicoes({ composicoes, onFechar }) {
                   <TableCell>{comp.produto}</TableCell>
                   <TableCell>{comp.qtdVagoes}</TableCell>
                   <TableCell>{comp.horarioInicio}</TableCell>
-                  <TableCell>{comp.horarioFim}</TableCell>
+                  <TableCell>{comp.fimISO ? hhmmLocal(comp.fimISO) : comp.horarioFim}</TableCell>
                   <TableCell>{comp.tempoTotal}</TableCell>
-                  <TableCell>{comp.tmd}</TableCell>
+                  <TableCell>{comp.tmdGiro || comp.tmd}</TableCell>
                   <TableCell>
                     {comp.impactosPuxada + comp.impactosDescarga > 0 ? (
                       <Typography variant="caption" color="error">
@@ -251,10 +329,10 @@ function formatarMensagemWhatsApp(comp) {
     ``,
     `*⏰ CRONOGRAMA*`,
     `Início: ${comp.horarioInicio}`,
-    `Fim: ${comp.horarioFim}`,
+    `Fim: ${comp.fimISO ? hhmmLocal(comp.fimISO) : comp.horarioFim}`,
     `Tempo Total: ${comp.tempoTotal}`,
     `Tempo Total Puxada: ${comp.tempoTotalPuxada}`,
-    `TMD: ${comp.tmd}`,
+    `TMD: ${comp.tmdGiro || comp.tmd}`,
     ``,
     `*⚠️ IMPACTOS*`,
     `Puxada: ${comp.impactosPuxada}`,
@@ -262,7 +340,7 @@ function formatarMensagemWhatsApp(comp) {
     ``,
     `*📋 POSICIONAMENTOS*`,
     ...comp.posicionamentos.map(p =>
-      `Pos ${p.posicao}: ${p.vagões} vagões | Puxada: ${p.tempoPuxada} | Descarga: ${p.tempoDescarga}`
+      `Pos ${p.posicao}: ${p.vagoes ?? p["vagões"] ?? 0} vagões | Puxada: ${msParaMinutosSegundos(p.puxadaTempo ?? p.tempoPuxada ?? 0)} | Descarga: ${msParaMinutosSegundos(p.descargaTempo ?? p.tempoDescarga ?? 0)}`
     )
   ].join('\n');
 }
@@ -436,9 +514,9 @@ function criarNovoCrono() {
   };
 }
 
-function MoegaCard({ moega, dados, setDados, setFeedback }) {
+const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback }) { 
   // Garantir que cronos está definido antes de qualquer uso
-  const cronos = Array.isArray(dados.cronos) ? dados.cronos : [];
+  const cronos = useMemo(() => (Array.isArray(dados.cronos) ? dados.cronos : []), [dados.cronos]);
   if (process.env.NODE_ENV === 'development') {
     console.log('=== MOEGACARD RENDERIZANDO ===', { moega, dados });
     console.log('=== CRONOS NO MOEGACARD ===', {
@@ -450,8 +528,23 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
   const { produto, qtdVagoes, posicionamentos, armazem, inicio, maquinista, operador } = dados;
   const numPos = calcularPosicionamentos(qtdVagoes || 0);
 
+  // Referências de tempo por produto (em milissegundos)
+  const { refPuxadaMs, refDescargaMs } = useMemo(() => {
+    const p = (produto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if (p === 'acucar' || p === 'farelo') {
+      // Açúcar e Farelo: Puxada 02:45, Descarga 09:15
+      return { refPuxadaMs: (2 * 60 + 45) * 1000, refDescargaMs: (9 * 60 + 15) * 1000 };
+    }
+    if (p === 'soja' || p === 'milho') {
+      // Soja e Milho: Puxada 02:35, Descarga 07:25
+      return { refPuxadaMs: (2 * 60 + 35) * 1000, refDescargaMs: (7 * 60 + 25) * 1000 };
+    }
+    // Fallback para comportamento anterior quando produto não está selecionado
+    return { refPuxadaMs: 20000, refDescargaMs: 60000 };
+  }, [produto]);
+
   // Usar os dados específicos da moega atual
-  const setCronos = (novosCronos) => {
+  const setCronos = useCallback((novosCronos) => {
     if (process.env.NODE_ENV === 'development') {
       console.log('=== SETCRONOS CHAMADO ===', { novosCronos, tipo: typeof novosCronos });
     }
@@ -467,12 +560,12 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       }
       setDados(d => ({ ...d, cronos: novosCronos }));
     }
-  };
+  }, [cronos, setDados]);
   const confirmado = dados.confirmado || false;
   const setConfirmado = (valor) => setDados(d => ({ ...d, confirmado: valor }));
   const mostrarResumo = dados.mostrarResumo || false;
   const setMostrarResumo = (valor) => setDados(d => ({ ...d, mostrarResumo: valor }));
-  const selecionados = Array.isArray(dados.selecionados) ? dados.selecionados : [];
+  const selecionados = useMemo(() => (Array.isArray(dados.selecionados) ? dados.selecionados : []), [dados.selecionados]);
   if (process.env.NODE_ENV === 'development') {
     console.log('=== SELECIONADOS NO MOEGACARD ===', {
       dadosSelecionados: dados.selecionados,
@@ -481,10 +574,157 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
     });
   }
   const setSelecionados = (valor) => setDados(d => ({ ...d, selecionados: valor }));
-  const vagoesPorPos = dados.vagoesPorPos || [];
-  const setVagoesPorPos = (valor) => setDados(d => ({ ...d, vagoesPorPos: valor }));
+  const vagoesPorPos = useMemo(() => (Array.isArray(dados.vagoesPorPos) ? dados.vagoesPorPos : []), [dados.vagoesPorPos]);
+  const setVagoesPorPos = useCallback((valor) => {
+    if (typeof valor === 'function') {
+      setDados(d => {
+        const prev = Array.isArray(d.vagoesPorPos) ? d.vagoesPorPos : [];
+        const next = valor(prev);
+        return { ...d, vagoesPorPos: Array.isArray(next) ? next : [] };
+      });
+    } else {
+      setDados(d => ({ ...d, vagoesPorPos: Array.isArray(valor) ? valor : [] }));
+    }
+  }, [setDados]);
   const salvando = dados.salvando || false;
-  const setSalvando = (valor) => setDados(d => ({ ...d, salvando: valor }));
+  const setSalvando = useCallback((valor) => setDados(d => ({ ...d, salvando: valor })), [setDados]);
+  
+  // Função para salvar composição em andamento (movida para cima para evitar TDZ)
+  const salvarComposicaoEmAndamento = useCallback(async () => {
+    if (salvando) return;
+
+    // Evitar salvar como 'em andamento' quando a composição já estiver concluída
+    const cronosArr = Array.isArray(cronos) ? cronos : [];
+    const todosFinalizadosAgora = (cronosArr.length === numPos) && cronosArr.every(c => c && !c.descargaAtivo && Number(c.descargaTempo) > 0);
+    if (confirmado && (qtdVagoes > 0) && todosFinalizadosAgora) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('⏭️ Ignorando salvar em andamento: composição já concluída.');
+      }
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('💾 Salvando composição em andamento...');
+      }
+
+      // Corrigir o último crono se necessário
+      let cronosCorrigidos = Array.isArray(cronos) ? [...cronos] : [];
+      if (cronosCorrigidos.length > 0) {
+        const lastIdx = cronosCorrigidos.length - 1;
+        if (cronosCorrigidos[lastIdx] && Number(cronosCorrigidos[lastIdx].descargaTempo) > 0) {
+          cronosCorrigidos[lastIdx] = {
+            ...cronosCorrigidos[lastIdx],
+            descargaAtivo: false
+          };
+        }
+      }
+      // Usar cronosCorrigidos no objeto salvo
+      const composicaoParaSalvar = {
+        moega,
+        produto,
+        armazem,
+        qtdVagoes,
+        inicio,
+        maquinista,
+        operador,
+        data: new Date().toISOString().split('T')[0],
+        dataHoraSalvamento: new Date().toISOString(),
+        tipo: 'composicao_em_andamento',
+        status: 'em_andamento',
+        cronos: cronosCorrigidos, // Salva o array de cronômetros completo
+        posicionamentos: Array.isArray(cronos) ? cronos.map((c, i) => {
+          if (!c) return null;
+          return {
+            posicao: i + 1,
+            vagoes: vagoesPorPos[i] || 0,
+            puxadaTempo: c.puxadaTempo || 0,
+            descargaTempo: c.descargaTempo || 0,
+            puxadaAtivo: c.puxadaAtivo || false,
+            descargaAtivo: c.descargaAtivo || false,
+            puxadaExcedeu: c.puxadaExcedeu || false,
+            descargaExcedeu: c.descargaExcedeu || false,
+            tempoImpactoPuxada: c.tempoImpactoPuxada || 0,
+            tempoImpactoDescarga: c.tempoImpactoDescarga || 0,
+            motivoImpactoPuxada: c.motivoImpactoPuxada || '',
+            motivoImpactoDescarga: c.motivoImpactoDescarga || '',
+            motivoImpactoDescargaAdicional: c.motivoImpactoDescargaAdicional || ''
+          };
+        }).filter(Boolean) : [],
+        vagoesPorPos: Array.isArray(vagoesPorPos) ? vagoesPorPos.map(v => Number(v) || 0) : [],
+        selecionados: selecionados,
+        inicioISO: dados && dados.inicioISO ? dados.inicioISO : '',
+        fimISO: dados && dados.fimISO ? dados.fimISO : '',
+        tmdGiro: dados && dados.tmdGiro ? dados.tmdGiro : ''
+      };
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📝 Dados para salvar:', composicaoParaSalvar);
+      }
+      // Gera um ID único para a composição em andamento
+      const idUnico = gerarIdUnicoComposicao(moega, composicaoParaSalvar.data, inicio);
+      await setDoc(doc(db, "composicoes_em_andamento", idUnico), composicaoParaSalvar, { merge: true });
+      if (process.env.NODE_ENV === 'development') {
+        console.log('✅ Composição em andamento salva/atualizada:', idUnico);
+      }
+      setFeedback({ type: "success", message: "Composição salva automaticamente!" });
+
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('❌ Erro ao salvar composição em andamento:', error);
+      }
+      setFeedback({ type: "error", message: "Erro ao salvar composição: " + error.message });
+    } finally {
+      setSalvando(false);
+    }
+  }, [salvando, moega, produto, armazem, qtdVagoes, inicio, maquinista, operador, cronos, vagoesPorPos, selecionados, dados, setFeedback, setSalvando]);
+  
+  // Debounce estável para salvamento automático (2s)
+  const salvarRef = React.useRef(null);
+  useEffect(() => {
+    salvarRef.current = salvarComposicaoEmAndamento;
+  }, [salvarComposicaoEmAndamento]);
+  const debouncedSalvar = React.useMemo(() => debounce(() => {
+    if (salvarRef.current) salvarRef.current();
+  }, 2000), []);
+  useEffect(() => () => debouncedSalvar.cancel(), [debouncedSalvar]);
+  
+  // Valores derivados memoizados para evitar recomputações em cada render
+  const dadosInicioISO = dados ? dados.inicioISO : undefined;
+  const dadosFimISO = dados ? dados.fimISO : undefined;
+  const dadosTmdGiro = dados ? dados.tmdGiro : undefined;
+  
+  const horarioFimMemo = useMemo(() => obterHorarioFimParaExibir(inicio, cronos, dadosFimISO), [inicio, cronos, dadosFimISO]);
+  const tempoTotalMemo = useMemo(() => calcularTempoTotal(cronos), [cronos]);
+  const tempoTotalPuxadaMemo = useMemo(() => calcularTempoTotalPuxada(cronos), [cronos]);
+  const tmdPrioritarioMemo = useMemo(() => (
+    (dadosTmdGiro) || calcularTMDGiroISO(dadosInicioISO, dadosFimISO, qtdVagoes) || calcularTMDGiro(cronos, qtdVagoes)
+  ), [dadosTmdGiro, dadosInicioISO, dadosFimISO, qtdVagoes, cronos]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const impactosTotaisMemo = useMemo(() => calcularImpactosTotais(cronos), [cronos]);
+
+  // Estado do resumo editável para PDF
+  const [resumoEditavel, setResumoEditavel] = useState({
+    inicio: inicio || '',
+    fim: horarioFimMemo,
+    tempoTotal: tempoTotalMemo,
+    tempoTotalPuxada: tempoTotalPuxadaMemo,
+    tmd: tmdPrioritarioMemo,
+    impactos: impactosTotaisMemo
+  });
+  
+  // Atualizar resumo editável quando dados mudarem
+  useEffect(() => {
+    setResumoEditavel({
+      inicio: inicio || '',
+      fim: horarioFimMemo,
+      tempoTotal: tempoTotalMemo,
+      tempoTotalPuxada: tempoTotalPuxadaMemo,
+      tmd: tmdPrioritarioMemo,
+      impactos: impactosTotaisMemo
+    });
+  }, [inicio, horarioFimMemo, tempoTotalMemo, tempoTotalPuxadaMemo, tmdPrioritarioMemo, impactosTotaisMemo]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
@@ -498,39 +738,69 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       return;
     }
     if (!Array.isArray(cronos) || cronos.length !== numPos) {
-      // Sempre inicializa todos os cronômetros do zero ao confirmar dados ou mudar qtdVagoes
-      const novosCronos = Array.from({ length: numPos }, () => criarNovoCrono());
-      setCronos(novosCronos);
-      // Inicializa o array de vagões por posicionamento
-      const total = qtdVagoes || 0;
-      const cheios = Math.floor(total / VAGOES_POR_POSICIONAMENTO);
-      const novosVagoesPorPos = Array.from({ length: numPos }, (_, idx) => {
-        if (idx < cheios) return VAGOES_POR_POSICIONAMENTO;
-        if (idx === cheios) return total % VAGOES_POR_POSICIONAMENTO || VAGOES_POR_POSICIONAMENTO;
-        return 0;
+      // Preservar cronos existentes e apenas ajustar o tamanho conforme numPos
+      setCronos(c => {
+        const atual = Array.isArray(c) ? c : [];
+        if (atual.length === numPos) return atual;
+        if (atual.length < numPos) {
+          const diff = numPos - atual.length;
+          const appended = Array.from({ length: diff }, () => criarNovoCrono());
+          return [...atual, ...appended];
+        }
+        return atual.slice(0, numPos);
       });
-      setVagoesPorPos(novosVagoesPorPos);
+      // Definir vagoesPorPos com 4 por posicionamento e resto no último
+      setVagoesPorPos(() => {
+        const total = Number(qtdVagoes) || 0;
+        const np = numPos;
+        if (np <= 0) return [];
+        // Preenche todos os posicionamentos, deixando o último com o restante (<= 4)
+        const base = Array.from({ length: Math.max(np - 1, 0) }, () => VAGOES_POR_POSICIONAMENTO);
+        const restante = Math.max(0, total - VAGOES_POR_POSICIONAMENTO * base.length);
+        const ultimo = Math.min(VAGOES_POR_POSICIONAMENTO, restante);
+        return [...base, ultimo];
+      });
     }
+    // Validação e correção de vagoesPorPos: máximo 4 por posição e soma == total
+    setVagoesPorPos(vpp => {
+      const total = Number(qtdVagoes) || 0;
+      const np = numPos;
+      const atual = Array.isArray(vpp) ? vpp.slice(0, np) : [];
+      const soma = atual.reduce((a, b) => a + (Number(b) || 0), 0);
+      const invalido = atual.length !== np || soma !== total || atual.some(v => {
+        const n = Number(v) || 0;
+        return n < 1 || n > VAGOES_POR_POSICIONAMENTO;
+      });
+      if (!invalido) return atual;
+      const base = Array.from({ length: Math.max(np - 1, 0) }, () => VAGOES_POR_POSICIONAMENTO);
+      const restante = Math.max(0, total - VAGOES_POR_POSICIONAMENTO * base.length);
+      const ultimo = Math.min(VAGOES_POR_POSICIONAMENTO, restante);
+      return [...base, ultimo];
+    });
     // eslint-disable-next-line
   }, [numPos, qtdVagoes, confirmado]);
 
   // Handler para editar vagões por posicionamento
-  const handleVagoesChange = (idx, value) => {
-    const novo = [...vagoesPorPos];
-    novo[idx] = Math.max(1, Math.min(value, qtdVagoes)); // mínimo 1, máximo qtdVagoes
+  const handleVagoesChange = React.useCallback((idx, value) => {
+    const atual = Array.isArray(vagoesPorPos) ? vagoesPorPos : [];
+    const novo = [...atual];
+    const num = Number(value);
+    const valNum = Number.isFinite(num) ? num : 0;
+    novo[idx] = Math.max(1, Math.min(valNum, VAGOES_POR_POSICIONAMENTO)); // mínimo 1, máximo 4
     setVagoesPorPos(novo);
-  };
+  }, [vagoesPorPos, setVagoesPorPos]);
 
   // Atualiza campos principais
-  const handleChange = (campo, valor) => setDados(d => ({ ...d, [campo]: valor }));
+  const handleChange = React.useCallback((campo, valor) => setDados(d => ({ ...d, [campo]: valor })), [setDados]);
   // Atualiza quantidade de vagões
-  const handleQtdVagoesChange = (e) => {
+  const handleQtdVagoesChange = React.useCallback((e) => {
     const qtd = Number(e.target.value);
     if (process.env.NODE_ENV === 'development') {
       console.log('=== ALTERANDO QUANTIDADE DE VAGÕES ===', { qtd, numPosAtual: calcularPosicionamentos(qtd) });
     }
 
     setDados(d => {
+
       const novosDados = {
         ...d,
         qtdVagoes: qtd,
@@ -541,20 +811,70 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       }
       return novosDados;
     });
-  };
+  }, [setDados]);
   // Atualiza tempos
-  const handleTempoChange = (idx, campo, valor) => {
+  const handleTempoChange = React.useCallback((idx, campo, valor) => {
     setDados(d => ({
       ...d,
       posicionamentos: d.posicionamentos.map((p, i) => i === idx ? { ...p, [campo]: valor } : p)
     }));
-  };
+  }, [setDados]);
   // Atualiza motivo impacto
-  const handleMotivoChange = (idx, campo, valor) => {
+  const handleMotivoChange = React.useCallback((idx, campo, valor) => {
     setCronos(c => {
       if (!Array.isArray(c)) return c;
       return c.map((cr, i) => i === idx ? { ...cr, [campo]: valor } : cr);
     });
+  }, [setCronos]);
+
+  // Adiciona +1 posicionamento ao final (incremento mínimo para criar um novo posicionamento)
+  // - Permite adicionar menos de 4 vagões quando faltar pouco para abrir um novo posicionamento
+  // - Redistribui sob demanda apenas entre o último posicionamento existente e o novo
+  const adicionarPosicionamentoExtra = () => {
+    try {
+      setDados(d => {
+        const atualQtd = Number(d.qtdVagoes) || 0;
+        const numPosAtual = calcularPosicionamentos(atualQtd);
+        // Quantidade definida pelo operador (1 a 4)
+        const qtdUsuario = Number(prompt("Quantos vagões nesse novo posicionamento? (1-4)")) || 1;
+        const incremento = Math.min(Math.max(qtdUsuario, 1), VAGOES_POR_POSICIONAMENTO);
+        const novoQtdVagoes = atualQtd + incremento;
+        const novoNumPos = calcularPosicionamentos(novoQtdVagoes);
+
+        // Ajustar cronos preservando existentes
+        const novosCronos = Array.isArray(d.cronos) ? d.cronos.slice() : [];
+        while (novosCronos.length < novoNumPos) novosCronos.push(criarNovoCrono());
+
+        // Caso especial: não havia nenhum posicionamento ainda
+        if (numPosAtual === 0) {
+          return { ...d, qtdVagoes: novoQtdVagoes, cronos: novosCronos, vagoesPorPos: [incremento] };
+        }
+
+        // Redistribuição sob demanda: manter 0..(numPosAtual-2) como estão,
+        // somar incremento ao último atual e dividir com o novo último respeitando o máximo de 4.
+        let atualVpp = Array.isArray(d.vagoesPorPos) ? d.vagoesPorPos.slice(0, numPosAtual) : [];
+        if (atualVpp.length < numPosAtual) {
+          // Completar vpp atual baseado na regra padrão para o total atual
+          const total = atualQtd;
+          const cheios = Math.floor(total / VAGOES_POR_POSICIONAMENTO);
+          const resto = total % VAGOES_POR_POSICIONAMENTO;
+          for (let i = atualVpp.length; i < numPosAtual; i++) {
+            if (i < cheios) atualVpp[i] = VAGOES_POR_POSICIONAMENTO; else if (i === cheios) atualVpp[i] = resto || VAGOES_POR_POSICIONAMENTO; else atualVpp[i] = 0;
+          }
+        }
+        const antesDoUltimo = atualVpp.slice(0, Math.max(0, numPosAtual - 1));
+        const lastExistente = atualVpp[numPosAtual - 1] || 0;
+        const totalUltimos = lastExistente + incremento;
+        const valorUltimo = Math.min(VAGOES_POR_POSICIONAMENTO, totalUltimos);
+        const valorNovo = totalUltimos - valorUltimo; // sempre <= 4
+        const novoVpp = [...antesDoUltimo, valorUltimo, valorNovo];
+
+        return { ...d, qtdVagoes: novoQtdVagoes, cronos: novosCronos, vagoesPorPos: novoVpp };
+      });
+      setFeedback && setFeedback({ type: 'info', message: 'Posicionamento extra adicionado.' });
+    } catch (e) {
+      setFeedback && setFeedback({ type: 'error', message: 'Erro ao adicionar posicionamento extra: ' + e.message });
+    }
   };
 
   // Função para verificar se um posicionamento pode ser iniciado (sequencial)
@@ -689,7 +1009,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       console.log('Tempo finalizado:', tempo);
     }
     const tempoMs = Number(tempo) || 0;
-    const tempoImpacto = tempoMs > 20000 ? tempoMs - 20000 : 0; // Calcula tempo de impacto se excedeu 20 segundos
+    const tempoImpacto = tempoMs > refPuxadaMs ? tempoMs - refPuxadaMs : 0; // Impacto baseado na referência do produto
     if (process.env.NODE_ENV === 'development') {
       console.log('Tempo de impacto calculado:', tempoImpacto);
     }
@@ -777,7 +1097,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       console.log('Tempo finalizado:', tempo);
     }
     const tempoMs = Number(tempo) || 0;
-    const tempoImpacto = tempoMs > 60000 ? tempoMs - 60000 : 0; // Calcula tempo de impacto se excedeu 1 minuto
+    const tempoImpacto = tempoMs > refDescargaMs ? tempoMs - refDescargaMs : 0; // Impacto baseado na referência do produto
     if (process.env.NODE_ENV === 'development') {
       console.log('Tempo de impacto calculado:', tempoImpacto);
     }
@@ -798,7 +1118,11 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       if (process.env.NODE_ENV === 'development') {
         console.log('Cronômetros após finalizar descarga:', novosCronos);
       }
-      setTimeout(() => salvarComposicaoEmAndamento(), 100);
+      // Evita salvar em andamento se todos finalizados
+      const todosFinalizadosAgora = novosCronos.every(c => c && !c.descargaAtivo && Number(c.descargaTempo) > 0);
+      if (!todosFinalizadosAgora) {
+        debouncedSalvar();
+      }
       return novosCronos;
     });
     handleTempoChange(idx, 'tempoDescarga', msParaMinutosSegundos(tempoMs));
@@ -821,6 +1145,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
   });
 
   // Detecta se todos os posicionamentos foram finalizados (todos os tempos de descarga preenchidos)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     // Verificação de segurança para garantir que cronos seja um array
     if (!Array.isArray(cronos)) {
@@ -854,6 +1179,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       // Salvar automaticamente a composição descarregada
       salvarComposicaoDescarregada();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cronos, confirmado, qtdVagoes, numPos]);
 
   // Função para salvar a composição descarregada no Firebase
@@ -893,6 +1219,9 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
         tipo: 'composicao_descarregada',
         cronos: cronosCorrigidos,
         posicionamentos: posicionamentosCorrigidos,
+        inicioISO: dados && dados.inicioISO ? dados.inicioISO : '',
+        fimISO: dados && dados.fimISO ? dados.fimISO : '',
+        tmdGiro: dados && dados.tmdGiro ? dados.tmdGiro : ''
       };
 
       if (process.env.NODE_ENV === 'development') {
@@ -908,7 +1237,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       // Mostrar feedback de sucesso
       setFeedback({ type: "success", message: "Composição descarregada salva automaticamente no sistema!" });
 
-      // Após salvar, remover de composicoes_em_andamento
+      // Após salvar, remover de composicoes_em_andamento IMEDIATAMENTE e marcar localmente como concluído
       try {
         const idUnico = gerarIdUnicoComposicao(moega, composicaoParaSalvar.data, inicio);
         await deleteDoc(doc(db, "composicoes_em_andamento", idUnico));
@@ -916,6 +1245,9 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
         if (process.env.NODE_ENV === 'development') {
           console.error('Erro ao remover composição em andamento:', e);
         }
+      } finally {
+        // Marcar status local para evitar que apareça como "em andamento"
+        setDados(prev => ({ ...prev, status: 'concluido' }));
       }
 
     } catch (error) {
@@ -978,7 +1310,10 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       mostrarResumo: false,
       selecionados: [],
       vagoesPorPos: [],
-      salvando: false
+      salvando: false,
+      inicioISO: '',
+      fimISO: '',
+      tmdGiro: ''
     });
     setFeedback({ type: "info", message: "Sistema resetado. Você pode iniciar uma nova composição." });
   };
@@ -994,6 +1329,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
   }
 
   // Calcular horário de fim
+  // eslint-disable-next-line no-unused-vars
   function calcularHorarioFim() {
     if (!inicio || !Array.isArray(cronos)) return '';
     const inicioDate = new Date(`2000-01-01T${inicio}`);
@@ -1003,28 +1339,29 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
   }
 
   // Calcular tempo total da descarga
-  function calcularTempoTotal() {
-    if (!Array.isArray(cronos)) return '00:00';
-    const tempoTotalMs = cronos.reduce((acc, c) => acc + (c ? c.descargaTempo : 0), 0);
+  function calcularTempoTotal(cronosParam) {
+    const arr = Array.isArray(cronosParam) ? cronosParam : [];
+    const tempoTotalMs = arr.reduce((acc, c) => acc + (c ? c.descargaTempo : 0), 0);
     return msParaMinutosSegundos(tempoTotalMs);
   }
 
   // Calcular tempo total de puxada
-  function calcularTempoTotalPuxada() {
-    if (!Array.isArray(cronos)) return '00:00';
-    const tempoTotalMs = cronos.reduce((acc, c) => acc + (c ? c.puxadaTempo : 0), 0);
+  function calcularTempoTotalPuxada(cronosParam) {
+    const arr = Array.isArray(cronosParam) ? cronosParam : [];
+    const tempoTotalMs = arr.reduce((acc, c) => acc + (c ? c.puxadaTempo : 0), 0);
     return msParaMinutosSegundos(tempoTotalMs);
   }
 
   // Calcular impactos totais
-  function calcularImpactosTotais() {
-    if (!Array.isArray(cronos)) return { puxada: 0, descarga: 0 };
-    const impactosPuxada = cronos.filter(c => c && c.tempoImpactoPuxada > 0).length;
-    const impactosDescarga = cronos.filter(c => c && c.tempoImpactoDescarga > 0).length;
+  function calcularImpactosTotais(cronosParam) {
+    const arr = Array.isArray(cronosParam) ? cronosParam : [];
+    const impactosPuxada = arr.filter(c => c && c.tempoImpactoPuxada > 0).length;
+    const impactosDescarga = arr.filter(c => c && c.tempoImpactoDescarga > 0).length;
     return { puxada: impactosPuxada, descarga: impactosDescarga };
   }
 
   // Função para calcular vagões por posicionamento
+  // eslint-disable-next-line no-unused-vars
   function vagoesNoPosicionamento(idx) {
     const total = qtdVagoes || 0;
     const cheios = Math.floor(total / VAGOES_POR_POSICIONAMENTO);
@@ -1034,6 +1371,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
   }
 
   // Função para exportar selecionados em PDF
+  // eslint-disable-next-line no-unused-vars
   const exportarSelecionadosPDF = () => {
     try {
       if (!Array.isArray(selecionados) || selecionados.length === 0) {
@@ -1078,7 +1416,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       doc.text(`Maquinista: ${maquinista}`, 14, y); y += 6;
       const totalVagoes = Array.isArray(selecionados) ? selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] || 0), 0) : 0;
       doc.text(`Qtd Vagões (selecionados): ${totalVagoes}`, 14, y); y += 6;
-      doc.text(`Horário de Início: ${inicio}`, 14, y); y += 6;
+      doc.text(`Horário de Início: ${resumoEditavel.inicio || inicio}`, 14, y); y += 6;
       doc.text(`Data/Hora do relatório: ${dataHora}`, 14, y); y += 8;
       // --- LINHA DIVISÓRIA ANTES DA TABELA ---
       doc.setDrawColor(25, 118, 210);
@@ -1151,16 +1489,16 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       });
       // --- BOX DE RESUMO ---
       let afterTableY = doc.lastAutoTable.finalY + 8;
-      // Calcular TMD e impactos
-      const tmd = (() => {
-        if (!Array.isArray(cronos)) return '00:00';
-        const tempos = selecionados.map(idx => {
+      // Calcular TMD Giro dos selecionados e impactos
+      const tmdGiroSelecionados = (() => {
+        if (!Array.isArray(cronos) || !Array.isArray(selecionados)) return '00:00';
+        const totalDescargaMs = selecionados.reduce((acc, idx) => {
           const c = cronos[idx];
-          return c && c.descargaTempo > 0 ? c.descargaTempo : 0;
-        }).filter(t => t > 0);
-        if (tempos.length === 0) return '00:00';
-        const mediaMs = tempos.reduce((a, b) => a + b, 0) / tempos.length;
-        return msParaMinutosSegundos(mediaMs);
+          return acc + (c && c.descargaTempo > 0 ? c.descargaTempo : 0);
+        }, 0);
+        const totalVagoesSel = selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] || 0), 0);
+        if (totalVagoesSel <= 0 || totalDescargaMs <= 0) return '00:00';
+        return msParaMinutosSegundos(totalDescargaMs / totalVagoesSel);
       })();
       const impactos = (() => {
         if (!Array.isArray(cronos)) return { puxada: 0, descarga: 0 };
@@ -1184,7 +1522,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       doc.setFontSize(10);
       doc.setTextColor(33, 33, 33);
       doc.text(`Total de Vagões: ${totalVagoes}`, 24, afterTableY + 15);
-      doc.text(`TMD (Tempo Médio Descarga): ${tmd}`, 80, afterTableY + 15);
+      doc.text(`TMD Giro (selecionados): ${tmdGiroSelecionados}`, 80, afterTableY + 15);
       doc.text(`Impactos: Puxada ${impactos.puxada} | Descarga ${impactos.descarga}`, 140, afterTableY + 15);
       doc.setFontSize(10);
       doc.setTextColor(67, 176, 42);
@@ -1201,10 +1539,10 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
     try {
       const doc = new jsPDF();
       const dataHora = new Date().toLocaleString();
-      const tempoTotal = calcularTempoTotal();
-      const tempoTotalPuxada = calcularTempoTotalPuxada();
-      const horarioFim = calcularHorarioFim();
-      const impactos = calcularImpactosTotais();
+      const tempoTotal = calcularTempoTotal(cronos);
+      const tempoTotalPuxada = calcularTempoTotalPuxada(cronos);
+      // const horarioFim = calcularHorarioFim(); // não utilizado
+      const impactos = calcularImpactosTotais(cronos);
 
       // Cabeçalho
       doc.setFontSize(18);
@@ -1235,11 +1573,11 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
 
       doc.setFontSize(10);
       doc.setTextColor(0, 0, 0);
-      doc.text(`Início: ${inicio}`, 14, 110);
-      doc.text(`Fim: ${horarioFim}`, 14, 117);
-      doc.text(`Tempo Total: ${tempoTotal}`, 14, 124);
-      doc.text(`Tempo Total Puxada: ${tempoTotalPuxada}`, 14, 131);
-      doc.text(`TMD (Tempo Médio Descarga): ${calcularTMD()}`, 14, 138);
+      doc.text(`Início: ${resumoEditavel.inicio || inicio}`, 14, 110);
+      doc.text(`Fim: ${resumoEditavel.fim || obterHorarioFimParaExibir(inicio, cronos, dados && dados.fimISO)}`, 14, 117);
+      doc.text(`Tempo Total: ${resumoEditavel.tempoTotal || tempoTotal}`, 14, 124);
+      doc.text(`Tempo Total Puxada: ${resumoEditavel.tempoTotalPuxada || tempoTotalPuxada}`, 14, 131);
+      doc.text(`TMD (Tempo Médio Descarga): ${resumoEditavel.tmd || ((dados && dados.tmdGiro) || calcularTMDGiroISO(dados && dados.inicioISO, dados && dados.fimISO, qtdVagoes) || calcularTMDGiro(cronos, qtdVagoes))}`, 14, 138);
 
       // Estatísticas de Impacto
       doc.setFontSize(14);
@@ -1254,6 +1592,18 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       // Tabela de Posicionamentos
       const tableData = Array.isArray(cronos) ? cronos.map((c, i) => {
         if (!c) return null;
+        const trocas = Array.isArray(c.trocasDeTurno) && c.trocasDeTurno.length > 0
+        ? c.trocasDeTurno.map(t => {
+            if (t.inicio) {
+              const mins = typeof t.duracaoMs === 'number' ? Math.round(t.duracaoMs / 60000) : null;
+              return `S:${t.inicio}${t.fim ? `→R:${t.fim}${mins !== null ? ` (${mins} min)` : ''}` : ''}`;
+            }
+            if (t.tipo && t.hora) {
+              return `${t.tipo === 'saida' ? 'S' : 'R'}:${t.hora}`;
+            }
+            return '';
+          }).filter(Boolean).join(', ')
+        : '-';
         return [
           i + 1,
           vagoesPorPos[i] || 0,
@@ -1264,6 +1614,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
           c.puxadaExcedeu && c.tempoImpactoPuxada > 0 ? c.motivoImpactoPuxada || 'Sem motivo' : '-',
           c.descargaExcedeu && c.tempoImpactoDescarga > 0 ?
             `${c.motivoImpactoDescarga || 'Sem motivo'}${c.motivoImpactoDescargaAdicional ? ` / ${c.motivoImpactoDescargaAdicional}` : ''}` : '-',
+          trocas,
           (c.puxadaTempo || 0) > 0 && (c.descargaTempo || 0) > 0 ? 'CONCLUÍDO' : 'EM ANDAMENTO'
         ];
       }).filter(Boolean) : [];
@@ -1294,17 +1645,44 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       });
 
       // Resumo Final
-      const finalY = doc.lastAutoTable.finalY + 10;
+      let yResumo = doc.lastAutoTable.finalY + 10;
       doc.setFontSize(12);
       doc.setTextColor(25, 118, 210);
-      doc.text('RESUMO FINAL', 14, finalY);
+      doc.text('RESUMO FINAL', 14, yResumo);
 
       doc.setFontSize(10);
       doc.setTextColor(0, 0, 0);
-      doc.text(`• Tempo total de operação: ${tempoTotal}`, 14, finalY + 10);
-      doc.text(`• Tempo médio por posicionamento: ${calcularTMD()}`, 14, finalY + 17);
-      doc.text(`• Total de impactos registrados: ${impactos.puxada + impactos.descarga}`, 14, finalY + 24);
-      doc.text(`• Eficiência: ${impactos.puxada + impactos.descarga === 0 ? '100% (Sem impactos)' : 'Com impactos registrados'}`, 14, finalY + 31);
+      doc.text(`• Tempo total de operação: ${resumoEditavel.tempoTotal || tempoTotal}`, 14, yResumo + 10);
+      doc.text(`• Tempo médio Descarga: ${resumoEditavel.tmd || calcularTMD()}`, 14, yResumo + 17);
+      doc.text(`• Total de impactos registrados: ${impactos.puxada + impactos.descarga}`, 14, yResumo + 24);
+      doc.text(`• Eficiência: ${impactos.puxada + impactos.descarga === 0 ? '100% (Sem impactos)' : 'Com impactos registrados'}`, 14, yResumo + 31);
+
+      // Trocas de turno por posicionamento
+      yResumo += 40;
+      doc.setFontSize(12);
+      doc.setTextColor(25, 118, 210);
+      doc.text('TROCAS DE TURNO', 14, yResumo);
+      yResumo += 8;
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      if (Array.isArray(cronos)) {
+        cronos.forEach((cr, i) => {
+          if (cr?.trocasDeTurno?.length) {
+            doc.text(`Posicionamento ${i + 1} - Trocas de turno:`, 14, yResumo);
+            yResumo += 6;
+            cr.trocasDeTurno.forEach(t => {
+              if (t.inicio) {
+                const mins = typeof t.duracaoMs === 'number' ? Math.round(t.duracaoMs / 60000) : null;
+                doc.text(`Saída às ${t.inicio}${t.fim ? `, retorno às ${t.fim}${mins !== null ? ` (${mins} min)` : ''}` : ''}`, 20, yResumo);
+              } else if (t.tipo && t.hora) {
+                doc.text(`${t.tipo === 'saida' ? 'Saída' : 'Retorno'} às ${t.hora}`, 20, yResumo);
+              }
+              yResumo += 6;
+            });
+            yResumo += 2;
+          }
+        });
+      }
 
       doc.save(`Relatorio_Final_${moega}_${new Date().toISOString().slice(0, 10)}.pdf`);
       setFeedback({ type: 'success', message: 'PDF exportado com sucesso!' });
@@ -1315,11 +1693,11 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
 
   // Função para compartilhar o resumo via WhatsApp
   const compartilharWhatsApp = () => {
-    const tmd = calcularTMD();
-    const tempoTotal = calcularTempoTotal();
-    const tempoTotalPuxada = calcularTempoTotalPuxada();
-    const horarioFim = calcularHorarioFim();
-    const impactos = calcularImpactosTotais();
+    const tmd = (dados && dados.tmdGiro) || calcularTMDGiroISO(dados && dados.inicioISO, dados && dados.fimISO, qtdVagoes) || calcularTMDGiro(cronos, qtdVagoes);
+    const tempoTotal = calcularTempoTotal(cronos);
+    const tempoTotalPuxada = calcularTempoTotalPuxada(cronos);
+    const horarioFim = obterHorarioFimParaExibir(inicio, cronos, dados && dados.fimISO);
+    const impactos = calcularImpactosTotais(cronos);
 
     const texto = [
       `*📋 RELATÓRIO FINAL DE DESCARGA*`,
@@ -1334,7 +1712,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       `*⏰ CRONOGRAMA*`,
       `Início: ${inicio}`,
       `Fim: ${horarioFim}`,
-      `Tempo Total: ${tempoTotal}`,
+      `Tempo Total de Descarga: ${tempoTotal}`,
       `Tempo Total Puxada: ${tempoTotalPuxada}`,
       `TMD: ${tmd}`,
       ``,
@@ -1374,89 +1752,10 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
     });
   };
 
-  // Função para salvar composição em andamento
-  const salvarComposicaoEmAndamento = async () => {
-    if (salvando) return;
-
-    setSalvando(true);
-    try {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('💾 Salvando composição em andamento...');
-      }
-
-      // Corrigir o último crono se necessário
-      let cronosCorrigidos = Array.isArray(cronos) ? [...cronos] : [];
-      if (cronosCorrigidos.length > 0) {
-        const lastIdx = cronosCorrigidos.length - 1;
-        if (cronosCorrigidos[lastIdx] && Number(cronosCorrigidos[lastIdx].descargaTempo) > 0) {
-          cronosCorrigidos[lastIdx] = {
-            ...cronosCorrigidos[lastIdx],
-            descargaAtivo: false
-          };
-        }
-      }
-      // Usar cronosCorrigidos no objeto salvo
-      const composicaoParaSalvar = {
-        moega,
-        produto,
-        armazem,
-        qtdVagoes,
-        inicio,
-        maquinista,
-        operador,
-        data: new Date().toISOString().split('T')[0],
-        dataHoraSalvamento: new Date().toISOString(),
-        tipo: 'composicao_em_andamento',
-        status: 'em_andamento',
-        cronos: cronosCorrigidos, // Salva o array de cronômetros completo
-        posicionamentos: Array.isArray(cronos) ? cronos.map((c, i) => {
-          if (!c) return null;
-          return {
-            posicao: i + 1,
-            vagoes: vagoesPorPos[i] || 0,
-            puxadaTempo: c.puxadaTempo || 0,
-            descargaTempo: c.descargaTempo || 0,
-            puxadaAtivo: c.puxadaAtivo || false,
-            descargaAtivo: c.descargaAtivo || false,
-            puxadaExcedeu: c.puxadaExcedeu || false,
-            descargaExcedeu: c.descargaExcedeu || false,
-            tempoImpactoPuxada: c.tempoImpactoPuxada || 0,
-            tempoImpactoDescarga: c.tempoImpactoDescarga || 0,
-            motivoImpactoPuxada: c.motivoImpactoPuxada || '',
-            motivoImpactoDescarga: c.motivoImpactoDescarga || '',
-            motivoImpactoDescargaAdicional: c.motivoImpactoDescargaAdicional || ''
-          };
-        }).filter(Boolean) : [],
-        vagoesPorPos: vagoesPorPos,
-        selecionados: selecionados
-      };
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log('📝 Dados para salvar:', composicaoParaSalvar);
-      }
-      // Gera um ID único para a composição em andamento
-      const idUnico = gerarIdUnicoComposicao(moega, composicaoParaSalvar.data, inicio);
-      await setDoc(doc(db, "composicoes_em_andamento", idUnico), composicaoParaSalvar, { merge: true });
-      if (process.env.NODE_ENV === 'development') {
-        console.log('✅ Composição em andamento salva/atualizada:', idUnico);
-      }
-      setFeedback({ type: "success", message: "Composição salva automaticamente!" });
-
-    } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('❌ Erro ao salvar composição em andamento:', error);
-      }
-      setFeedback({ type: "error", message: "Erro ao salvar composição: " + error.message });
-    } finally {
-      setSalvando(false);
-    }
-  };
 
   // Função para compartilhar selecionados via WhatsApp
   const compartilharSelecionadosWhatsApp = () => {
     if (!Array.isArray(selecionados) || selecionados.length === 0) return;
-    const tmd = calcularTMD();
-    const selecionadosCronos = Array.isArray(cronos) && Array.isArray(selecionados) ? selecionados.map(idx => cronos[idx]).filter(Boolean) : [];
     const qtdVagoesSelecionados = Array.isArray(selecionados) ? selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] || 0), 0) : 0;
     let texto = [
       `*Resumo Parcial da Descarga*`,
@@ -1515,13 +1814,16 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
         setFeedback({ type: "info", message: `Posicionamento ${idx + 2}: Puxada iniciada automaticamente!` });
       }
     });
-    // Salvar composição em andamento após finalizar descarga
+    // Salvar composição em andamento após finalizar descarga (mas não quando todos finalizados)
+    const todosFinalizados = cronos.every(c => c && !c.descargaAtivo && Number(c.descargaTempo) > 0);
     if (
-      cronos.some(cr => cr && !cr.descargaAtivo && cr.descargaTempo > 0) &&
-      !salvando
+      cronos.some(cr => cr && !cr.descargaAtivo && Number(cr.descargaTempo) > 0) &&
+      !salvando &&
+      !todosFinalizados
     ) {
-      salvarComposicaoEmAndamento();
+      debouncedSalvar();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cronos]);
 
   // useEffect para salvar composição em andamento somente quando todos os cronos estiverem finalizados
@@ -1529,8 +1831,15 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
     if (!Array.isArray(cronos) || cronos.length === 0) return;
     const todosFinalizados = cronos.every(c => c && !c.descargaAtivo && Number(c.descargaTempo) > 0);
     if (todosFinalizados) {
-      salvarComposicaoEmAndamento();
+      // Capturar fimISO e calcular tmdGiro quando concluir todos os posicionamentos
+      setDados(prev => ({
+        ...prev,
+        fimISO: prev && prev.fimISO ? prev.fimISO : agoraISO(),
+        tmdGiro: calcularTMDGiro(cronos, qtdVagoes)
+      }));
+      // Não chamar debouncedSalvar aqui para evitar recriar documento em_andamento após conclusão
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cronos]);
 
   // Adicione as funções de troca de turno dentro do MoegaCard:
@@ -1574,82 +1883,115 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
 
   return (
     <Paper style={{ marginBottom: 24 }}>
-      <Stack direction="row" spacing={2} alignItems="center" sx={{ p: 2 }}>
-        {/* Menu estilizado para seleção de produto */}
-        <ul className="acorh" style={{ width: 200, margin: 0, marginRight: 16, display: 'inline-block', verticalAlign: 'middle' }}>
-          <li>
-            <a href="#" style={{ cursor: confirmado ? 'not-allowed' : 'pointer', opacity: confirmado ? 0.6 : 1 }}>
-              {produto || 'Selecione o Produto'}
-            </a>
-            {!confirmado && (
-              <ul>
-                {PRODUTOS.map(p => (
-                  <li key={p}>
-                    <a href="#" onClick={e => { e.preventDefault(); setDados(d => ({ ...d, produto: p })); }}>{p}</a>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </li>
-        </ul>
-        {/* Removido menu estilizado para seleção de moega daqui */}
-        {/* O menu de moega fica apenas no componente principal */}
-        {/* ...restante dos inputs e controles do MoegaCard... */}
-        <MuiTextField
-          label="Armazém"
-          value={armazem || ''}
-          onChange={e => handleChange('armazem', e.target.value)}
-          sx={{ minWidth: 120 }}
-          disabled={confirmado}
-        />
-        <MuiTextField
-          label="Horário de Início"
-          type="time"
-          value={inicio || ''}
-          onChange={e => handleChange('inicio', e.target.value)}
-          sx={{ minWidth: 120 }}
-          disabled={confirmado}
-          InputLabelProps={{ shrink: true }}
-        />
-        <MuiTextField
-          label="Maquinista"
-          value={maquinista || ''}
-          onChange={e => handleChange('maquinista', e.target.value)}
-          sx={{ minWidth: 120 }}
-          disabled={confirmado}
-        />
-        <MuiTextField
-          label="Operador"
-          value={operador || ''}
-          onChange={e => handleChange('operador', e.target.value)}
-          sx={{ minWidth: 120 }}
-          disabled={confirmado}
-          placeholder="Seu nome"
-        />
-        <MuiTextField
-          type="number"
-          label="Qtd Vagões"
-          value={qtdVagoes}
-          onChange={handleQtdVagoesChange}
-          sx={{ minWidth: 120 }}
-          inputProps={{ min: 0 }}
-          disabled={confirmado}
-        />
+      <div className="w-full overflow-x-auto px-2 py-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex flex-col min-w-0">
+            {/* Seleção de Produto responsiva */}
+            <div className="w-full">
+              <button
+                type="button"
+                className="w-full h-12 px-4 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 text-left"
+                style={{ cursor: confirmado ? 'not-allowed' : 'pointer', opacity: confirmado ? 0.6 : 1 }}
+                disabled={confirmado}
+                aria-haspopup="true"
+                aria-expanded={!confirmado}
+              >
+                {produto || 'Selecione o Produto'}
+              </button>
+              {!confirmado && (
+                <ul className="mt-2 w-full border border-blue-200 rounded-md overflow-hidden">
+                  {PRODUTOS.map(p => (
+                    <li key={p}>
+                      <button
+                        type="button"
+                        onClick={() => setDados(d => ({ ...d, produto: p }))}
+                        className="block w-full text-left px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700"
+                      >
+                        {p}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col min-w-0">
+            <MuiTextField
+              label="Armazém"
+              value={armazem || ''}
+              onChange={e => handleChange('armazem', e.target.value)}
+              disabled={confirmado}
+              fullWidth
+            />
+          </div>
+
+          <div className="flex flex-col min-w-0">
+            <MuiTextField
+              label="Horário de Início"
+              type="time"
+              value={inicio || ''}
+              onChange={e => handleChange('inicio', e.target.value)}
+              disabled={confirmado}
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+            />
+          </div>
+
+          <div className="flex flex-col min-w-0">
+            <MuiTextField
+              label="Maquinista"
+              value={maquinista || ''}
+              onChange={e => handleChange('maquinista', e.target.value)}
+              disabled={confirmado}
+              fullWidth
+            />
+          </div>
+
+          <div className="flex flex-col min-w-0">
+            <MuiTextField
+              label="Operador"
+              value={operador || ''}
+              onChange={e => handleChange('operador', e.target.value)}
+              disabled={confirmado}
+              placeholder="Seu nome"
+              fullWidth
+            />
+          </div>
+
+          <div className="flex flex-col min-w-0">
+            <MuiTextField
+              type="number"
+              label="Qtd Vagões"
+              value={qtdVagoes}
+              onChange={handleQtdVagoesChange}
+              inputProps={{ min: 0 }}
+              disabled={confirmado}
+              fullWidth
+            />
+          </div>
+        </div>
+
         {!confirmado && (
-          <MuiButton
-            variant="contained"
-            color="primary"
-            onClick={async () => {
-              setConfirmado(true);
-              // Salvar composição automaticamente ao confirmar
-              await salvarComposicaoEmAndamento();
-            }}
-            sx={{ minWidth: 150 }}
-          >
-            Confirmar Dados
-          </MuiButton>
+          <div className="mt-4 flex flex-col md:flex-row gap-4">
+            <MuiButton
+              variant="contained"
+              color="primary"
+              onClick={async () => {
+                setConfirmado(true);
+                setDados(prev => {
+                  if (prev && prev.inicioISO) return prev;
+                  return { ...prev, inicioISO: agoraISO() };
+                });
+                await salvarComposicaoEmAndamento();
+              }}
+              className="w-full md:w-auto h-12"
+            >
+              Confirmar Dados
+            </MuiButton>
+          </div>
         )}
-      </Stack>
+      </div>
       {confirmado && qtdVagoes > 0 && (
         <>
           <Paper elevation={3} sx={{ mt: 2, p: 2, background: 'linear-gradient(90deg, #e3f2fd 0%, #bbdefb 100%)', border: '1.5px solid #90caf9', borderRadius: 4, boxShadow: '0 8px 32px rgba(25, 118, 210, 0.13)', mb: 2 }}>
@@ -1722,7 +2064,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
                     onFinalizar={tempo => finalizarPuxada(idx, tempo)}
                     label="Puxada"
                     tempoInicial={Array.isArray(cronos) && cronos[idx] ? cronos[idx].puxadaTempo : 0}
-                    tempoLimite={20000}
+                    tempoLimite={refPuxadaMs}
                     onExcedeuLimite={() => onExcedeuPuxada(idx)}
                   />
                   <MuiButton
@@ -1742,7 +2084,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
                     onFinalizar={tempo => finalizarDescarga(idx, tempo)}
                     label="Descarga"
                     tempoInicial={Array.isArray(cronos) && cronos[idx] ? cronos[idx].descargaTempo : 0}
-                    tempoLimite={60000}
+                    tempoLimite={refDescargaMs}
                     onExcedeuLimite={() => onExcedeuDescarga(idx)}
                   />
                   <MuiButton
@@ -1811,6 +2153,18 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
                   <div className="aviso-descarga">
                     Descarga em andamento: Aguarde o operador finalizar a descarga para avançar.
                   </div>
+                )}
+                {idx === numPos - 1 && (
+                  <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                    <MuiButton variant="outlined" size="small" onClick={adicionarPosicionamentoExtra}>
+                      ➕ Adicionar +1 Posicionamento
+                    </MuiButton>
+                    {Array.isArray(cronos) && cronos.every(c => c && c.descargaTempo > 0 && !c.descargaAtivo) && (
+                      <MuiButton variant="contained" color="success" size="small" onClick={salvarComposicaoDescarregada}>
+                        ✅ Finalizar Composição
+                      </MuiButton>
+                    )}
+                  </Stack>
                 )}
               </Paper>
             ))}
@@ -1972,11 +2326,43 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
               <Paper elevation={1} sx={{ p: 2, background: '#f8f9fa' }}>
                 <Typography variant="h6" color="primary" gutterBottom>⏰ CRONOGRAMA</Typography>
                 <Stack spacing={1}>
-                  <Typography><strong>Início:</strong> {inicio}</Typography>
-                  <Typography><strong>Fim:</strong> {calcularHorarioFim()}</Typography>
-                  <Typography><strong>Tempo Total:</strong> {calcularTempoTotal()}</Typography>
-                  <Typography><strong>Tempo Total Puxada:</strong> {calcularTempoTotalPuxada()}</Typography>
-                  <Typography><strong>TMD (Tempo Médio Descarga):</strong> {calcularTMD()}</Typography>
+                  <label>
+                    <strong>Início:</strong>
+                    <input
+                      type="time"
+                      value={resumoEditavel.inicio}
+                      onChange={(e) => setResumoEditavel({ ...resumoEditavel, inicio: e.target.value })}
+                      style={{ marginLeft: 8 }}
+                    />
+                  </label>
+                  <label>
+                    <strong>Fim:</strong>
+                    <input
+                      type="time"
+                      value={resumoEditavel.fim}
+                      onChange={(e) => setResumoEditavel({ ...resumoEditavel, fim: e.target.value })}
+                      style={{ marginLeft: 8 }}
+                    />
+                  </label>
+                  <label>
+                    <strong>Tempo Total:</strong>
+                    <input
+                      type="text"
+                      value={resumoEditavel.tempoTotal}
+                      onChange={(e) => setResumoEditavel({ ...resumoEditavel, tempoTotal: e.target.value })}
+                      style={{ marginLeft: 8 }}
+                    />
+                  </label>
+                  <Typography><strong>Tempo Total Puxada:</strong> {resumoEditavel.tempoTotalPuxada}</Typography>
+                  <label>
+                    <strong>TMD:</strong>
+                    <input
+                      type="text"
+                      value={resumoEditavel.tmd}
+                      onChange={(e) => setResumoEditavel({ ...resumoEditavel, tmd: e.target.value })}
+                      style={{ marginLeft: 8 }}
+                    />
+                  </label>
                 </Stack>
               </Paper>
             </Grid>
@@ -1987,10 +2373,10 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
             <Typography variant="h6" color="warning.main" gutterBottom>⚠️ ESTATÍSTICAS DE IMPACTO</Typography>
             <Grid container spacing={2}>
               <Grid item xs={6}>
-                <Typography><strong>Impactos na Puxada:</strong> {calcularImpactosTotais().puxada}</Typography>
+                <Typography><strong>Impactos na Puxada:</strong> {impactosTotaisMemo.puxada}</Typography>
               </Grid>
               <Grid item xs={6}>
-                <Typography><strong>Impactos na Descarga:</strong> {calcularImpactosTotais().descarga}</Typography>
+                <Typography><strong>Impactos na Descarga:</strong> {impactosTotaisMemo.descarga}</Typography>
               </Grid>
             </Grid>
           </Paper>
@@ -2034,6 +2420,20 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
                               +{msParaMinutosSegundos(c.tempoImpactoDescarga)}
                             </Typography>
                           )}
+                          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                            <button
+                              className="btn-troca-turno"
+                              onClick={() => iniciarTrocaDeTurno(i)}
+                            >
+                              🔄 Troca de Turno
+                            </button>
+                            <button
+                              className="btn-troca-turno"
+                              onClick={() => finalizarTrocaDeTurno(i)}
+                            >
+                              ▶️ Retorno
+                            </button>
+                          </div>
                         </TableCell>
                         <TableCell>
                           {c.puxadaExcedeu && c.tempoImpactoPuxada > 0 && (
@@ -2108,7 +2508,7 @@ function MoegaCard({ moega, dados, setDados, setFeedback }) {
       )}
     </Paper>
   );
-}
+});
 
 // Adicione ao final do arquivo:
 export default function ControleMoega() {
@@ -2126,7 +2526,10 @@ export default function ControleMoega() {
     mostrarResumo: false,
     selecionados: [],
     vagoesPorPos: [],
-    salvando: false
+    salvando: false,
+    inicioISO: '',
+    fimISO: '',
+    tmdGiro: ''
   });
   const [moega2, setMoega2] = useState({
     produto: '',
@@ -2141,7 +2544,10 @@ export default function ControleMoega() {
     mostrarResumo: false,
     selecionados: [],
     vagoesPorPos: [],
-    salvando: false
+    salvando: false,
+    inicioISO: '',
+    fimISO: '',
+    tmdGiro: ''
   });
 
   const moegaAtual = moegaSelecionada === 'Moega 01' ? moega1 : moega2;
@@ -2150,51 +2556,13 @@ export default function ControleMoega() {
   // Estados já existentes
   const [filtroData, setFiltroData] = useState("");
   const [feedback, setFeedback] = useState({ type: "", message: "" });
-  const [carregandoRegistros, setCarregandoRegistros] = useState(false);
-  const [carregandoMaisComps, setCarregandoMaisComps] = useState(false);
-  const [registros, setRegistros] = useState([]);
   const [mostrarComposicoesEmAndamento, setMostrarComposicoesEmAndamento] = useState(false);
   const [composicoesEmAndamento, setComposicoesEmAndamento] = useState([]);
-  // Função auxiliar para converter tempo para minutos decimais
-  const tempoParaMinutoDecimal = (tempo) => {
-    if (!tempo || !tempo.includes(":")) return 0;
-    const [min, sec] = tempo.split(":").map(Number);
-    return min + sec / 60;
-  };
-  // Dados para o gráfico
-  const dadosGrafico = registros.map(r => ({
-    data: r.data,
-    puxada: tempoParaMinutoDecimal(r.tempoPuxada),
-    descarga: tempoParaMinutoDecimal(r.tempoDescarga),
-    impacto: tempoParaMinutoDecimal(r.tempoImpacto),
-  }));
+  const [navOpen, setNavOpen] = useState(false);
 
   // Funções de controle do modal (exemplo)
-  const abrirModalComposicoes = () => setMostrarComposicoesEmAndamento(true);
   const fecharModalComposicoes = () => setMostrarComposicoesEmAndamento(false);
 
-  // Função para carregar registros
-  const carregarRegistros = async () => {
-    setCarregandoRegistros(true);
-    try {
-      // Exemplo de consulta ao Firestore (adapte conforme necessário)
-      const registrosCollection = collection(db, "registros");
-      let qArr = [];
-      if (filtroData) {
-        qArr.push(where('data', '==', filtroData));
-      }
-      qArr.push(orderBy('data', 'desc'));
-      qArr.push(limit(50));
-      const q = query(registrosCollection, ...qArr);
-      const snapshot = await getDocs(q);
-      let lista = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setRegistros(lista);
-    } catch (e) {
-      setFeedback({ type: "error", message: `Erro ao carregar registros: ${e.message}` });
-    } finally {
-      setCarregandoRegistros(false);
-    }
-  };
 
   // Função para carregar composições em andamento
   const carregarComposicoesEmAndamento = async () => {
@@ -2203,7 +2571,9 @@ export default function ControleMoega() {
       const q = query(composicoesCollection, limit(50));
       const snapshot = await getDocs(q);
       const todasComposicoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setComposicoesEmAndamento(todasComposicoes);
+      // Filtrar quaisquer documentos que, por algum motivo, tenham sido marcados como concluídos
+      const apenasEmAndamento = todasComposicoes.filter(c => c && (c.status === 'em_andamento' || !c.status));
+      setComposicoesEmAndamento(apenasEmAndamento);
       setMostrarComposicoesEmAndamento(true);
     } catch (e) {
       setFeedback({ type: "error", message: `Erro ao carregar composições: ${e.message}` });
@@ -2237,49 +2607,74 @@ export default function ControleMoega() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <img src="/logo-vli.png" alt="Logo VLI" style={{ display: 'block', margin: '32px auto 8px auto', maxWidth: 180, width: '100%', height: 'auto' }} />
-      <h2 style={{ textAlign: 'center', width: '100%' }}>Sistema Inteligente de Descarga VLI</h2>
-      {/* Menu estilizado para seleção de moega */}
-      <Paper elevation={3} sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        p: 2,
-        mb: 3,
-        borderRadius: 3,
-        background: 'linear-gradient(90deg, #e3f2fd 0%, #bbdefb 100%)',
-        backdropFilter: 'blur(12px) saturate(1.2)',
-        border: '1.5px solid #90caf9',
-        flexWrap: { xs: 'wrap', sm: 'nowrap' }
-      }}>
-        <Stack direction="row" spacing={2} alignItems="center" sx={{ width: '100%' }}>
-          <ul className="acorh" style={{ width: 200, margin: 0 }}>
-            <li>
-              <a href="#" style={{ cursor: 'pointer' }}>{moegaSelecionada}</a>
-              <ul>
-                <li><a href="#" onClick={e => { e.preventDefault(); setMoegaSelecionada('Moega 01'); }}>Moega 01</a></li>
-                <li><a href="#" onClick={e => { e.preventDefault(); setMoegaSelecionada('Moega 02'); }}>Moega 02</a></li>
-              </ul>
-            </li>
-          </ul>
-          <MuiTextField
-            type="date"
-            size="small"
-            value={filtroData}
-            onChange={e => setFiltroData(e.target.value)}
-            label="Filtrar por data"
-            InputLabelProps={{ shrink: true }}
-          />
-          <MuiButton
-            variant="contained"
-            color="primary"
-            onClick={carregarComposicoesEmAndamento}
-          >
+    <>
+      <AppBar position="sticky" color="primary" sx={{ py: 0.5 }}>
+        <Toolbar className="px-4">
+          <IconButton size="large" edge="start" color="inherit" aria-label="abrir menu" onClick={() => setNavOpen(true)} className="md:hidden">
+            <MenuIcon />
+          </IconButton>
+          <img src="/logo-vli.png" alt="Logo VLI" style={{ height: 28, marginRight: 10 }} />
+          <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 700 }} noWrap>
+            Sistema Inteligente de Descarga VLI
+          </Typography>
+        </Toolbar>
+      </AppBar>
+
+      <Drawer anchor="left" open={navOpen} onClose={() => setNavOpen(false)} PaperProps={{ sx: { width: 300 } }}>
+        <Box role="navigation" sx={{ p: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>Navegação</Typography>
+          <Divider sx={{ mb: 1 }} />
+          <List>
+            <ListItemButton onClick={() => { setMoegaSelecionada('Moega 01'); setNavOpen(false); }}>
+              <ListItemText primary="Moega 01" />
+            </ListItemButton>
+            <ListItemButton onClick={() => { setMoegaSelecionada('Moega 02'); setNavOpen(false); }}>
+              <ListItemText primary="Moega 02" />
+            </ListItemButton>
+          </List>
+          <Divider sx={{ my: 1 }} />
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>Filtrar por data</Typography>
+          <MuiTextField type="date" size="small" value={filtroData} onChange={e => setFiltroData(e.target.value)} label="Data" fullWidth InputLabelProps={{ shrink: true }} />
+          <MuiButton fullWidth sx={{ mt: 2, minHeight: 44 }} variant="contained" onClick={() => { carregarComposicoesEmAndamento(); setNavOpen(false); }}>
             🔄 Composições em Andamento
           </MuiButton>
-        </Stack>
-      </Paper>
+        </Box>
+      </Drawer>
+
+      <div className="p-4 sm:p-6 space-y-6 max-w-screen-xl mx-auto">
+        <img src="/logo-vli.png" alt="Logo VLI" style={{ display: 'block', margin: '24px auto 6px auto', maxWidth: 160, width: '100%', height: 'auto' }} />
+        <h2 style={{ textAlign: 'center', width: '100%', fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)' }}>Sistema Inteligente de Descarga VLI</h2>
+        {/* Menu estilizado para seleção de moega (desktop) */}
+        <Paper elevation={3} sx={{
+          display: { xs: 'none', md: 'flex' },
+          alignItems: 'center',
+          gap: 2,
+          p: 2,
+          mb: 3,
+          borderRadius: 3,
+          background: 'linear-gradient(90deg, #e3f2fd 0%, #bbdefb 100%)',
+          backdropFilter: 'blur(12px) saturate(1.2)',
+          border: '1.5px solid #90caf9',
+          flexWrap: { xs: 'wrap', sm: 'nowrap' }
+        }}>
+          <Stack direction="row" spacing={2} alignItems="center" sx={{ width: '100%' }}>
+            <ul className="acorh" style={{ width: 200, margin: 0 }}>
+              <li>
+                <button type="button" style={{ cursor: 'pointer', display:'block', padding:'10px 10px 10px 20px', background:'#1976d2', color:'#fff', border:'none', width:'100%', textAlign:'left' }} aria-haspopup="true" aria-expanded="false">
+                  {moegaSelecionada}
+                </button>
+                <ul>
+                  <li><button type="button" onClick={() => setMoegaSelecionada('Moega 01')} style={{ display:'block', padding:'10px 10px 10px 40px', background:'#e3f2fd', color:'#1976d2', border:'none', width:'100%', textAlign:'left' }}>Moega 01</button></li>
+                  <li><button type="button" onClick={() => setMoegaSelecionada('Moega 02')} style={{ display:'block', padding:'10px 10px 10px 40px', background:'#e3f2fd', color:'#1976d2', border:'none', width:'100%', textAlign:'left' }}>Moega 02</button></li>
+                </ul>
+              </li>
+            </ul>
+            <MuiTextField type="date" size="small" value={filtroData} onChange={e => setFiltroData(e.target.value)} label="Filtrar por data" InputLabelProps={{ shrink: true }} />
+            <MuiButton variant="contained" color="primary" sx={{ minHeight: 44 }} onClick={carregarComposicoesEmAndamento}>
+              🔄 Composições em Andamento
+            </MuiButton>
+          </Stack>
+        </Paper>
 
 
       {/* Painel principal do MoegaCard */}
@@ -2319,9 +2714,9 @@ export default function ControleMoega() {
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 18 }}>
-          <img src="/img vli/terminalTiplam.jpg" alt="Terminal Tiplam" className="valores-img" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
-          <img src="/img vli/composiçao.jpg" alt="Composição" className="valores-img" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
-          <img src="/img vli/inovar.jpg" alt="Inovar" className="valores-img" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
+          <img src="/img vli/terminalTiplam.jpg" alt="Terminal Tiplam" className="valores-img" loading="lazy" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
+          <img src="/img vli/composiçao.jpg" alt="Composição" className="valores-img" loading="lazy" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
+          <img src="/img vli/inovar.jpg" alt="Inovar" className="valores-img" loading="lazy" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
         </div>
       </Paper>
       {/* Feedback visual restaurado */}
@@ -2352,9 +2747,11 @@ export default function ControleMoega() {
         Sistema Inteligente de Descarga VLI &copy; {new Date().getFullYear()}
       </footer>
     </div>
+  </>
   );
 }
 
+// Função utilitária para gerar o idUnico de composições em andamento
 // Função utilitária para gerar o idUnico de composições em andamento
 function gerarIdUnicoComposicao(moega, data, inicio) {
   return `${moega || 'Moega'}_${data}_${inicio || 'semInicio'}`.replace(/\W+/g, '_');
