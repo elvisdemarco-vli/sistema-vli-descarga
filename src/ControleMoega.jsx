@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { TextField as MuiTextField, Button as MuiButton, Grid, Paper, Typography, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, Alert, Stack, Checkbox, Tooltip as MuiTooltip, AppBar, Toolbar, IconButton, Drawer, List, ListItemButton, ListItemText, Divider, Box } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
+import { VLIButton, VLICard, VLITypography, VLIContainer, VLIStatusBadge } from './components/VLIComponents';
+import { VLIThemeProvider } from './theme/VLIThemeProvider';
 import { db } from "./firebaseConfig";
 import { collection, addDoc, getDocs, query, limit, doc, setDoc, deleteDoc } from "firebase/firestore";
 // import * as XLSX from "xlsx";
@@ -15,6 +17,7 @@ import {
   Legend
 } from "recharts";
 import Cronometro from './components/Cronometro';
+
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { debounce } from 'lodash';
@@ -526,7 +529,8 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
     });
   }
   const { produto, qtdVagoes, posicionamentos, armazem, inicio, maquinista, operador } = dados;
-  const numPos = calcularPosicionamentos(qtdVagoes || 0);
+  const vagoesPorPos = useMemo(() => (Array.isArray(dados.vagoesPorPos) ? dados.vagoesPorPos : []), [dados.vagoesPorPos]);
+  const numPos = Math.max(calcularPosicionamentos(qtdVagoes || 0), vagoesPorPos.length);
 
   // Referências de tempo por produto (em milissegundos)
   const { refPuxadaMs, refDescargaMs } = useMemo(() => {
@@ -574,7 +578,6 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
     });
   }
   const setSelecionados = (valor) => setDados(d => ({ ...d, selecionados: valor }));
-  const vagoesPorPos = useMemo(() => (Array.isArray(dados.vagoesPorPos) ? dados.vagoesPorPos : []), [dados.vagoesPorPos]);
   const setVagoesPorPos = useCallback((valor) => {
     if (typeof valor === 'function') {
       setDados(d => {
@@ -786,7 +789,7 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
     const novo = [...atual];
     const num = Number(value);
     const valNum = Number.isFinite(num) ? num : 0;
-    novo[idx] = Math.max(1, Math.min(valNum, VAGOES_POR_POSICIONAMENTO)); // mínimo 1, máximo 4
+    novo[idx] = Math.max(0, Math.min(valNum, VAGOES_POR_POSICIONAMENTO)); // mínimo 0, máximo 4
     setVagoesPorPos(novo);
   }, [vagoesPorPos, setVagoesPorPos]);
 
@@ -800,12 +803,48 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
     }
 
     setDados(d => {
+      const numPosNormais = calcularPosicionamentos(qtd);
+      const numPosExtras = 4; // 4 posicionamentos extras vazios
+      const totalPosicionamentos = numPosNormais + numPosExtras;
+      
+      // Gerar vagoesPorPos: posicionamentos normais + 4 extras com 0 vagões
+      const novoVagoesPorPos = [];
+      
+      // Posicionamentos normais baseados na quantidade de vagões
+      if (qtd > 0) {
+        const cheios = Math.floor(qtd / VAGOES_POR_POSICIONAMENTO);
+        const resto = qtd % VAGOES_POR_POSICIONAMENTO;
+        
+        for (let i = 0; i < numPosNormais; i++) {
+          if (i < cheios) {
+            novoVagoesPorPos[i] = VAGOES_POR_POSICIONAMENTO;
+          } else if (i === cheios && resto > 0) {
+            novoVagoesPorPos[i] = resto;
+          } else {
+            novoVagoesPorPos[i] = 0;
+          }
+        }
+      }
+      
+      // Adicionar 4 posicionamentos extras vazios (0 vagões)
+      for (let i = 0; i < numPosExtras; i++) {
+        novoVagoesPorPos.push(0);
+      }
+      
+      // Gerar cronos para todos os posicionamentos
+      const novosCronos = [];
+      for (let i = 0; i < totalPosicionamentos; i++) {
+        novosCronos.push(d.cronos && d.cronos[i] ? d.cronos[i] : criarNovoCrono());
+      }
 
       const novosDados = {
         ...d,
         qtdVagoes: qtd,
-        posicionamentos: Array.from({ length: calcularPosicionamentos(qtd) }, (_, i) => d.posicionamentos[i] || { tempoPuxada: '', tempoDescarga: '' })
+        posicionamentos: Array.from({ length: totalPosicionamentos }, (_, i) => d.posicionamentos[i] || { tempoPuxada: '', tempoDescarga: '' }),
+        vagoesPorPos: novoVagoesPorPos,
+        cronos: novosCronos
       };
+      
       if (process.env.NODE_ENV === 'development') {
         console.log('Novos dados após alteração:', novosDados);
       }
@@ -835,43 +874,21 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
       setDados(d => {
         const atualQtd = Number(d.qtdVagoes) || 0;
         const numPosAtual = calcularPosicionamentos(atualQtd);
-        // Quantidade definida pelo operador (1 a 4)
-        const qtdUsuario = Number(prompt("Quantos vagões nesse novo posicionamento? (1-4)")) || 1;
-        const incremento = Math.min(Math.max(qtdUsuario, 1), VAGOES_POR_POSICIONAMENTO);
-        const novoQtdVagoes = atualQtd + incremento;
-        const novoNumPos = calcularPosicionamentos(novoQtdVagoes);
+        
+        // Adiciona um posicionamento com 0 vagões (locomotiva remota fora de posição)
+        const novoNumPos = numPosAtual + 1;
 
         // Ajustar cronos preservando existentes
         const novosCronos = Array.isArray(d.cronos) ? d.cronos.slice() : [];
         while (novosCronos.length < novoNumPos) novosCronos.push(criarNovoCrono());
 
-        // Caso especial: não havia nenhum posicionamento ainda
-        if (numPosAtual === 0) {
-          return { ...d, qtdVagoes: novoQtdVagoes, cronos: novosCronos, vagoesPorPos: [incremento] };
-        }
-
-        // Redistribuição sob demanda: manter 0..(numPosAtual-2) como estão,
-        // somar incremento ao último atual e dividir com o novo último respeitando o máximo de 4.
-        let atualVpp = Array.isArray(d.vagoesPorPos) ? d.vagoesPorPos.slice(0, numPosAtual) : [];
-        if (atualVpp.length < numPosAtual) {
-          // Completar vpp atual baseado na regra padrão para o total atual
-          const total = atualQtd;
-          const cheios = Math.floor(total / VAGOES_POR_POSICIONAMENTO);
-          const resto = total % VAGOES_POR_POSICIONAMENTO;
-          for (let i = atualVpp.length; i < numPosAtual; i++) {
-            if (i < cheios) atualVpp[i] = VAGOES_POR_POSICIONAMENTO; else if (i === cheios) atualVpp[i] = resto || VAGOES_POR_POSICIONAMENTO; else atualVpp[i] = 0;
-          }
-        }
-        const antesDoUltimo = atualVpp.slice(0, Math.max(0, numPosAtual - 1));
-        const lastExistente = atualVpp[numPosAtual - 1] || 0;
-        const totalUltimos = lastExistente + incremento;
-        const valorUltimo = Math.min(VAGOES_POR_POSICIONAMENTO, totalUltimos);
-        const valorNovo = totalUltimos - valorUltimo; // sempre <= 4
-        const novoVpp = [...antesDoUltimo, valorUltimo, valorNovo];
-
-        return { ...d, qtdVagoes: novoQtdVagoes, cronos: novosCronos, vagoesPorPos: novoVpp };
+        // Adiciona posicionamento com 0 vagões
+        const atualVpp = Array.isArray(d.vagoesPorPos) ? d.vagoesPorPos.slice() : [];
+        atualVpp.push(0); // Adiciona posicionamento com 0 vagões
+        
+        return { ...d, qtdVagoes: atualQtd, cronos: novosCronos, vagoesPorPos: atualVpp };
       });
-      setFeedback && setFeedback({ type: 'info', message: 'Posicionamento extra adicionado.' });
+      setFeedback && setFeedback({ type: 'info', message: 'Posicionamento extra adicionado com 0 vagões.' });
     } catch (e) {
       setFeedback && setFeedback({ type: 'error', message: 'Erro ao adicionar posicionamento extra: ' + e.message });
     }
@@ -1414,7 +1431,7 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
       doc.text(`Produto: ${produto}`, 14, y); y += 6;
       doc.text(`Armazém: ${armazem}`, 14, y); y += 6;
       doc.text(`Maquinista: ${maquinista}`, 14, y); y += 6;
-      const totalVagoes = Array.isArray(selecionados) ? selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] || 0), 0) : 0;
+      const totalVagoes = Array.isArray(selecionados) ? selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] === 0 ? 0 : vagoesPorPos[idx] || 0), 0) : 0;
       doc.text(`Qtd Vagões (selecionados): ${totalVagoes}`, 14, y); y += 6;
       doc.text(`Horário de Início: ${resumoEditavel.inicio || inicio}`, 14, y); y += 6;
       doc.text(`Data/Hora do relatório: ${dataHora}`, 14, y); y += 8;
@@ -1496,7 +1513,7 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
           const c = cronos[idx];
           return acc + (c && c.descargaTempo > 0 ? c.descargaTempo : 0);
         }, 0);
-        const totalVagoesSel = selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] || 0), 0);
+        const totalVagoesSel = selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] === 0 ? 0 : vagoesPorPos[idx] || 0), 0);
         if (totalVagoesSel <= 0 || totalDescargaMs <= 0) return '00:00';
         return msParaMinutosSegundos(totalDescargaMs / totalVagoesSel);
       })();
@@ -1756,7 +1773,7 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
   // Função para compartilhar selecionados via WhatsApp
   const compartilharSelecionadosWhatsApp = () => {
     if (!Array.isArray(selecionados) || selecionados.length === 0) return;
-    const qtdVagoesSelecionados = Array.isArray(selecionados) ? selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] || 0), 0) : 0;
+    const qtdVagoesSelecionados = Array.isArray(selecionados) ? selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] === 0 ? 0 : vagoesPorPos[idx] || 0), 0) : 0;
     let texto = [
       `*Resumo Parcial da Descarga*`,
       `Moega: ${moega}`,
@@ -1775,7 +1792,7 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
         if (!crono) return null;
         const puxadaImpacto = crono.puxadaExcedeu && crono.tempoImpactoPuxada > 0 ? `${msParaMinutosSegundos(crono.tempoImpactoPuxada)} ${crono.motivoImpactoPuxada || ''}` : '-';
         const descargaImpacto = crono.descargaExcedeu && crono.tempoImpactoDescarga > 0 ? `${msParaMinutosSegundos(crono.tempoImpactoDescarga)} ${crono.motivoImpactoDescarga || ''}${crono.motivoImpactoDescargaAdicional ? ` / ${crono.motivoImpactoDescargaAdicional}` : ''}` : '-';
-        return `${idx + 1} | ${vagoesPorPos[idx] || 0} | ${msParaMinutosSegundos(crono.puxadaTempo || 0)} | ${puxadaImpacto} | ${msParaMinutosSegundos(crono.descargaTempo || 0)} | ${descargaImpacto}`;
+        return `${idx + 1} | ${vagoesPorPos[idx] === 0 ? 1 : (vagoesPorPos[idx] || 0)} | ${msParaMinutosSegundos(crono.puxadaTempo || 0)} | ${puxadaImpacto} | ${msParaMinutosSegundos(crono.descargaTempo || 0)} | ${descargaImpacto}`;
       }).filter(Boolean) : [])
     ].join('\n');
     const url = `https://wa.me/?text=${encodeURIComponent(texto)}`;
@@ -2045,9 +2062,9 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
                   <MuiTextField
                     type="number"
                     size="small"
-                    value={vagoesPorPos[idx] || ''}
+                    value={vagoesPorPos[idx] !== undefined ? (vagoesPorPos[idx] === 0 ? 1 : vagoesPorPos[idx]) : ''}
                     onChange={e => handleVagoesChange(idx, Number(e.target.value))}
-                    inputProps={{ min: 1, max: qtdVagoes }}
+                    inputProps={{ min: 0, max: qtdVagoes }}
                     sx={{ width: 60 }}
                   />
                   <Checkbox
@@ -2179,7 +2196,7 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
               ({Array.isArray(selecionados) ? selecionados.length : 0} de {numPos})
             </span>
           </Typography>
-          <Typography>Qtd Vagões (selecionados): <b>{Array.isArray(selecionados) ? selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] || 0), 0) : 0}</b></Typography>
+          <Typography>Qtd Vagões (selecionados): <b>{Array.isArray(selecionados) ? selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] === 0 ? 0 : vagoesPorPos[idx] || 0), 0) : 0}</b></Typography>
           <Typography>Tempos de Descarga:</Typography>
           <ul>
             {Array.isArray(cronos) && Array.isArray(selecionados) ? selecionados.map(idx => {
@@ -2219,7 +2236,7 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
                 doc.text(`Armazém: ${armazem}`, 14, 39);
                 doc.text(`Maquinista: ${maquinista}`, 14, 46);
                 doc.text(`Operador: ${operador}`, 14, 53);
-                doc.text(`Qtd Vagões (selecionados): ${Array.isArray(selecionados) ? selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] || 0), 0) : 0}`, 14, 60);
+                doc.text(`Qtd Vagões (selecionados): ${Array.isArray(selecionados) ? selecionados.reduce((acc, idx) => acc + (vagoesPorPos[idx] === 0 ? 0 : vagoesPorPos[idx] || 0), 0) : 0}`, 14, 60);
                 doc.text(`Horário de Início: ${inicio}`, 14, 67);
                 doc.text(`Data/Hora do relatório: ${dataHora}`, 14, 74);
                 // Monta tabela
@@ -2228,7 +2245,7 @@ const MoegaCard = memo(function MoegaCard({ moega, dados, setDados, setFeedback 
                   if (!crono) return null;
                   return [
                     idx + 1,
-                    vagoesPorPos[idx] || 0,
+                    vagoesPorPos[idx] === 0 ? 1 : (vagoesPorPos[idx] || 0),
                     msParaMinutosSegundos(crono.puxadaTempo || 0),
                     crono.puxadaExcedeu && crono.tempoImpactoPuxada > 0 ? `${msParaMinutosSegundos(crono.tempoImpactoPuxada)} ${crono.motivoImpactoPuxada || ''}` : '-',
                     msParaMinutosSegundos(crono.descargaTempo || 0),
@@ -2560,6 +2577,7 @@ export default function ControleMoega() {
   const [composicoesEmAndamento, setComposicoesEmAndamento] = useState([]);
   const [navOpen, setNavOpen] = useState(false);
 
+
   // Funções de controle do modal (exemplo)
   const fecharModalComposicoes = () => setMostrarComposicoesEmAndamento(false);
 
@@ -2607,16 +2625,16 @@ export default function ControleMoega() {
   };
 
   return (
-    <>
+    <VLIThemeProvider>
       <AppBar position="sticky" color="primary" sx={{ py: 0.5 }}>
         <Toolbar className="px-4">
           <IconButton size="large" edge="start" color="inherit" aria-label="abrir menu" onClick={() => setNavOpen(true)} className="md:hidden">
             <MenuIcon />
           </IconButton>
           <img src="/logo-vli.png" alt="Logo VLI" style={{ height: 28, marginRight: 10 }} />
-          <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 700 }} noWrap>
+          <VLITypography variant="h6" sx={{ flexGrow: 1, fontWeight: 700 }} noWrap>
             Sistema Inteligente de Descarga VLI
-          </Typography>
+          </VLITypography>
         </Toolbar>
       </AppBar>
 
@@ -2635,9 +2653,10 @@ export default function ControleMoega() {
           <Divider sx={{ my: 1 }} />
           <Typography variant="subtitle2" sx={{ mb: 1 }}>Filtrar por data</Typography>
           <MuiTextField type="date" size="small" value={filtroData} onChange={e => setFiltroData(e.target.value)} label="Data" fullWidth InputLabelProps={{ shrink: true }} />
-          <MuiButton fullWidth sx={{ mt: 2, minHeight: 44 }} variant="contained" onClick={() => { carregarComposicoesEmAndamento(); setNavOpen(false); }}>
+          <VLIButton fullWidth sx={{ mt: 2, minHeight: 44 }} variant="contained" onClick={() => { carregarComposicoesEmAndamento(); setNavOpen(false); }}>
             🔄 Composições em Andamento
-          </MuiButton>
+          </VLIButton>
+
         </Box>
       </Drawer>
 
@@ -2645,16 +2664,12 @@ export default function ControleMoega() {
         <img src="/logo-vli.png" alt="Logo VLI" style={{ display: 'block', margin: '24px auto 6px auto', maxWidth: 160, width: '100%', height: 'auto' }} />
         <h2 style={{ textAlign: 'center', width: '100%', fontSize: 'clamp(1.25rem, 2.5vw, 1.75rem)' }}>Sistema Inteligente de Descarga VLI</h2>
         {/* Menu estilizado para seleção de moega (desktop) */}
-        <Paper elevation={3} sx={{
+        <VLICard elevation="elevated" gradient={true} sx={{
           display: { xs: 'none', md: 'flex' },
           alignItems: 'center',
           gap: 2,
           p: 2,
           mb: 3,
-          borderRadius: 3,
-          background: 'linear-gradient(90deg, #e3f2fd 0%, #bbdefb 100%)',
-          backdropFilter: 'blur(12px) saturate(1.2)',
-          border: '1.5px solid #90caf9',
           flexWrap: { xs: 'wrap', sm: 'nowrap' }
         }}>
           <Stack direction="row" spacing={2} alignItems="center" sx={{ width: '100%' }}>
@@ -2670,11 +2685,12 @@ export default function ControleMoega() {
               </li>
             </ul>
             <MuiTextField type="date" size="small" value={filtroData} onChange={e => setFiltroData(e.target.value)} label="Filtrar por data" InputLabelProps={{ shrink: true }} />
-            <MuiButton variant="contained" color="primary" sx={{ minHeight: 44 }} onClick={carregarComposicoesEmAndamento}>
+            <VLIButton variant="contained" color="primary" sx={{ minHeight: 44 }} onClick={carregarComposicoesEmAndamento}>
               🔄 Composições em Andamento
-            </MuiButton>
+            </VLIButton>
+
           </Stack>
-        </Paper>
+        </VLICard>
 
 
       {/* Painel principal do MoegaCard */}
@@ -2686,14 +2702,10 @@ export default function ControleMoega() {
       />
       {/* Gráficos e tabelas de desempenho restaurados */}
       {/* Página inicial personalizada com valores VLI */}
-      <Paper elevation={3} sx={{
+      <VLICard elevation="elevated" gradient={true} sx={{
         mt: 2,
         mb: 3,
         p: 4,
-        borderRadius: 4,
-        background: 'linear-gradient(90deg, #e3f2fd 0%, #bbdefb 100%)',
-        backdropFilter: 'blur(12px) saturate(1.2)',
-        border: '1.5px solid #90caf9',
         display: 'flex',
         flexDirection: { xs: 'column', md: 'row' },
         alignItems: 'stretch',
@@ -2718,7 +2730,7 @@ export default function ControleMoega() {
           <img src="/img vli/composiçao.jpg" alt="Composição" className="valores-img" loading="lazy" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
           <img src="/img vli/inovar.jpg" alt="Inovar" className="valores-img" loading="lazy" style={{ width: 180, height: 120, objectFit: 'cover', borderRadius: 18, boxShadow: '0 4px 24px #90caf9' }} />
         </div>
-      </Paper>
+      </VLICard>
       {/* Feedback visual restaurado */}
       <Feedback {...feedback} onClose={() => setFeedback({ type: '', message: '' })} />
       {/* Modal de composições em andamento restaurado */}
@@ -2730,6 +2742,9 @@ export default function ControleMoega() {
         />
       )}
       {/* (As próximas etapas restaurarão outros modais se necessário) */}
+      
+
+      
       {/* Rodapé institucional */}
       <footer style={{
         width: '100%',
@@ -2747,7 +2762,7 @@ export default function ControleMoega() {
         Sistema Inteligente de Descarga VLI &copy; {new Date().getFullYear()}
       </footer>
     </div>
-  </>
+  </VLIThemeProvider>
   );
 }
 
